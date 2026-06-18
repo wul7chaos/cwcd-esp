@@ -217,7 +217,7 @@ internal sealed class MonoInjector : IDisposable
             // klass = mono_class_from_name(image, ns, class) -> [rbx+0x70]
             0x4C, 0x89, 0xF1,                               // mov rcx, r14
             0x48, 0x8B, 0x53, 0x40,                         // mov rdx, [rbx+40h]
-            0x4D, 0x8B, 0x43, 0x48,                         // mov r8,  [rbx+48h]
+            0x4C, 0x8B, 0x43, 0x48,                         // mov r8,  [rbx+48h]  (REX: W=1,R=1,B=0; 0x4D 的 B=1 会把 rbx 变成 r11)
             0x48, 0x8B, 0x43, 0x20,                         // mov rax, [rbx+20h]
             0xFF, 0xD0,                                     // call rax
             0x48, 0x89, 0x43, 0x70,                         // mov [rbx+70h], rax
