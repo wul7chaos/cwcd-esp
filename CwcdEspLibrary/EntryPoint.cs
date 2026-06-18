@@ -103,6 +103,10 @@ namespace CwcdEsp
 
                 FileLogger.Info($"===== Patch 注册完成：成功 {success}，失败 {fail} =====");
 
+                // 把结果传给状态面板
+                Esp.StatusOverlay.PatchSuccess = success;
+                Esp.StatusOverlay.PatchFail = fail;
+
                 // 4. 热键监听
                 FileLogger.Info("启动热键监听...");
                 HotkeyManager.Start();

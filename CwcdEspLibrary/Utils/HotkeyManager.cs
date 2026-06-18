@@ -39,6 +39,11 @@ namespace CwcdEsp.Utils
                     EspConfig.BulletTrackingEnabled = !EspConfig.BulletTrackingEnabled;
                     EntryPoint.Log($"子弹追踪: {(EspConfig.BulletTrackingEnabled ? "ON" : "OFF")}");
                 }
+                if (Input.GetKeyDown(EspConfig.ToggleMenuKey))
+                {
+                    EspConfig.OverlayVisible = !EspConfig.OverlayVisible;
+                    EntryPoint.Log($"状态面板: {(EspConfig.OverlayVisible ? "ON" : "OFF")}");
+                }
             }
             catch { /* Input 在某些时序下可能不可用，忽略 */ }
         }

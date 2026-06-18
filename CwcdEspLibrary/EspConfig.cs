@@ -13,6 +13,7 @@ namespace CwcdEsp
         public static bool BoxEspEnabled = true;          // F6
         public static bool LootEspEnabled = true;         // F7
         public static bool BulletTrackingEnabled = false; // F8（默认关）
+        public static bool OverlayVisible = true;         // F9 面板可见性
 
         // ===== 快捷键 =====
         public static KeyCode ToggleBoxKey = KeyCode.F6;
