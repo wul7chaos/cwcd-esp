@@ -5,13 +5,11 @@ using UnityEngine;
 namespace CwcdEsp.Esp
 {
     /// <summary>
-    /// 方框透视（修复版：基于屏幕投影的固定像素宽度方框）。
+    /// 方框透视（修复版：使用 Collider.bounds 的 8 角点投影到屏幕画 2D 包围框）。
     ///
-    /// 旧方案用 cam.transform.right * halfWidth（世界空间）计算方框左右边界，
-    /// 在透视相机下远处方框会缩成几个像素且视觉上"偏离"敌人。
-    ///
-    /// 新方案：用 WorldToScreenPoint(foot) 和 WorldToScreenPoint(head) 得到脚底和头顶的屏幕坐标，
-    /// 方框宽度 = 屏幕上脚到头距离的固定比例（如 0.6），确保远近都视觉正确。
+    /// 之前的方案用脚底+固定高度投影，在俯视角下方框偏移。
+    /// 现在用 Collider.bounds 的 8 个角点投影到屏幕，取 min/max 画 2D 包围框，
+    /// 确保方框精确框住角色的渲染碰撞体。
     /// </summary>
     public static class BoxESP
     {
@@ -31,37 +29,56 @@ namespace CwcdEsp.Esp
 
         private static void DrawEnemyBoxGl(Camera cam, EnemyData e)
         {
-            // 脚底和头顶投影到屏幕
-            Vector3 footScreen = cam.WorldToScreenPoint(e.Position);
-            Vector3 headScreen = cam.WorldToScreenPoint(e.Position + Vector3.up * e.Height);
+            // 用 bounds 中心 + size 构建 8 角点
+            Vector3 center = e.BoundsCenter;
+            Vector3 size = e.BoundsSize;
 
-            // 任一在相机后方则跳过
-            if (footScreen.z < 0) return;
+            // 如果 bounds 无效（size≈0），回退到 position + height + radius
+            if (size.sqrMagnitude < 0.01f)
+            {
+                center = e.Position + Vector3.up * (e.Height * 0.5f);
+                size = new Vector3(e.Radius * 2f, e.Height, e.Radius * 2f);
+            }
 
-            // 屏幕上的脚底和头顶 y 坐标（GL 坐标，y 向上）
-            float footY = footScreen.y;
-            float headY = headScreen.z > 0 ? headScreen.y : footY + 30f; // 头顶在后方时用估算
+            Vector3 ext = size * 0.5f;
+            // 8 个角点
+            Vector3[] corners = new Vector3[8];
+            corners[0] = center + new Vector3(-ext.x, -ext.y, -ext.z);
+            corners[1] = center + new Vector3( ext.x, -ext.y, -ext.z);
+            corners[2] = center + new Vector3(-ext.x,  ext.y, -ext.z);
+            corners[3] = center + new Vector3( ext.x,  ext.y, -ext.z);
+            corners[4] = center + new Vector3(-ext.x, -ext.y,  ext.z);
+            corners[5] = center + new Vector3( ext.x, -ext.y,  ext.z);
+            corners[6] = center + new Vector3(-ext.x,  ext.y,  ext.z);
+            corners[7] = center + new Vector3( ext.x,  ext.y,  ext.z);
 
-            // 方框高度 = 屏幕上脚到头的距离（至少 20px）
-            float boxHeight = Mathf.Max(Mathf.Abs(headY - footY), 20f);
-            // 方框宽度 = 高度的 0.6 倍（人体比例），至少 12px
-            float boxWidth = Mathf.Max(boxHeight * 0.6f, 12f);
+            // 全部投影到屏幕，取 min/max 画 2D 包围框
+            float minX = float.MaxValue, maxX = float.MinValue;
+            float minY = float.MaxValue, maxY = float.MinValue;
+            bool anyVisible = false;
 
-            float centerX = footScreen.x;
-            float bottomY = Mathf.Min(footY, headY);
-            float topY = bottomY + boxHeight;
-            float leftX = centerX - boxWidth * 0.5f;
-            float rightX = centerX + boxWidth * 0.5f;
+            for (int i = 0; i < 8; i++)
+            {
+                Vector3 sp = cam.WorldToScreenPoint(corners[i]);
+                if (sp.z < 0) continue; // 在相机后方
+                anyVisible = true;
+                if (sp.x < minX) minX = sp.x;
+                if (sp.x > maxX) maxX = sp.x;
+                if (sp.y < minY) minY = sp.y;
+                if (sp.y > maxY) maxY = sp.y;
+            }
+
+            if (!anyVisible) return;
 
             Color c = EspConfig.ColorForFraction(e.FractionValue);
 
-            // 方框
-            GlDrawHelper.DrawBox(leftX, topY, rightX, bottomY, c);
+            // 方框（GL 像素坐标：原点左下，y 向上）
+            GlDrawHelper.DrawBox(minX, maxY, maxX, minY, c);
 
             // 血条（方框上方）
             if (e.HasHp)
             {
-                DrawHealthBar(leftX, rightX, topY, e.HpRatio);
+                DrawHealthBar(minX, maxX, maxY, e.HpRatio);
             }
         }
 
@@ -71,9 +88,7 @@ namespace CwcdEsp.Esp
             float gap = 2f;
             float barTop = boxTop + gap;
             float barBottom = barTop + barH;
-            // 背景
             GlDrawHelper.DrawRect(left, barBottom, right, barTop, new Color(0.15f, 0.15f, 0.15f, 0.85f));
-            // 填充
             float fillRight = left + (right - left) * Mathf.Clamp01(ratio);
             GlDrawHelper.DrawRect(left, barBottom, fillRight, barTop, Colors.HpColor(ratio));
         }
@@ -94,13 +109,17 @@ namespace CwcdEsp.Esp
 
         private static void DrawEnemyLabel(Camera cam, EnemyData e)
         {
-            Vector3 headScreen = cam.WorldToScreenPoint(e.Position + Vector3.up * e.Height);
-            if (headScreen.z < 0) return;
+            // 文字放在 bounds 顶部上方
+            Vector3 topPos = e.BoundsCenter + Vector3.up * (e.BoundsSize.y * 0.5f);
+            if (e.BoundsSize.sqrMagnitude < 0.01f)
+                topPos = e.Position + Vector3.up * e.Height;
 
-            // 文字放在头顶上方
-            float topGlY = headScreen.y + 8f;
+            Vector3 sp = cam.WorldToScreenPoint(topPos);
+            if (sp.z < 0) return;
+
+            float topGlY = sp.y + 8f;
             float guiY = ScreenTools.GlYToGuiY(topGlY);
-            float centerX = headScreen.x;
+            float centerX = sp.x;
 
             Color c = EspConfig.ColorForFraction(e.FractionValue);
             string text = e.HasHp ? $"{e.Name}  {e.Hp:0}/{e.MaxHp:0}" : e.Name;

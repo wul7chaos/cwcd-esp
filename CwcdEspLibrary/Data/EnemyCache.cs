@@ -8,9 +8,9 @@ using UnityEngine;
 namespace CwcdEsp.Data
 {
     /// <summary>
-    /// 敌人列表缓存 —— 双缓冲 + 真正的指针交换（方案 6.5 / v3 修复 #11）。
-    /// 写入永远在 _writeBuffer（主线程独占），读取永远在 _readBuffer（任意线程无竞争）。
-    /// SwapBuffers() 在主线程 Update 末尾执行，O(1) 交换两个 List 引用。
+    /// 敌人列表缓存 —— 双缓冲 + 真正的指针交换。
+    /// 修复版：使用 ActorViewer.transform.position（Unity 渲染坐标）而非 ActorData.position（逻辑坐标），
+    /// 并读取 Collider.bounds 获取精确碰撞盒。
     /// </summary>
     public class EnemyCache
     {
@@ -19,8 +19,11 @@ namespace CwcdEsp.Data
         private List<EnemyData> _readBuffer = new List<EnemyData>(64);
         private List<EnemyData> _writeBuffer = new List<EnemyData>(64);
 
-        // 阵营位掩码：Fraction.Monster(2) | Fraction.Enemy(4)
         private const int EnemyMask = 2 | 4;
+
+        // 日志限频
+        private static float _lastLogTime = 0f;
+        private static int _logCount = 0;
 
         public void Init()
         {
@@ -28,10 +31,6 @@ namespace CwcdEsp.Data
             _writeBuffer.Clear();
         }
 
-        /// <summary>
-        /// 主线程 Update Postfix 调用：遍历 ActorViewerManager.dicActors，
-        /// 过滤敌对 + 存活 + 可见，做距离/视锥剔除后写入写缓冲区。
-        /// </summary>
         public void Update(ActorViewerManager mgr)
         {
             if (mgr == null || mgr.dicActors == null) return;
@@ -44,7 +43,6 @@ namespace CwcdEsp.Data
             float maxDist = EspConfig.EnemyMaxDistance;
             float maxDistSq = maxDist * maxDist;
 
-            // dicActors: Dictionary<int, ActorViewer>
             var dic = mgr.dicActors;
             foreach (var kv in dic)
             {
@@ -55,24 +53,48 @@ namespace CwcdEsp.Data
                 if (actor.dead) continue;
 
                 int frac = (int)actor.fraction;
-                if ((frac & EnemyMask) == 0) continue; // 非敌对跳过
+                if ((frac & EnemyMask) == 0) continue;
 
-                // 可见性（LogicDataActorLife.visible）
                 bool visible = actor.lifeData == null || actor.lifeData.visible;
 
-                // 距离剔除
-                Vector3 pos = actor.position;
+                // 关键修复：优先用 viewer.transform.position（Unity 渲染坐标），
+                // 因为 ActorData.position 是服务器逻辑坐标，可能与客户端渲染位置有偏差
+                Vector3 pos = viewer.transform != null ? viewer.transform.position : actor.position;
+
                 float distSq = (pos - camPos).sqrMagnitude;
                 if (distSq > maxDistSq) continue;
 
-                // 视锥剔除（有相机时）
                 if (cam != null && !ScreenTools.IsInFrustum(cam, pos)) continue;
+
+                // 读取碰撞盒
+                Vector3 boundsCenter = pos;
+                Vector3 boundsSize = Vector3.zero;
+                float radius = 0.5f;
+                float height = 1.8f;
+
+                if (viewer.actorCollider != null)
+                {
+                    Bounds bounds = viewer.actorCollider.bounds;
+                    boundsCenter = bounds.center;
+                    boundsSize = bounds.size;
+                    radius = Mathf.Max(bounds.extents.x, bounds.extents.z);
+                    height = bounds.size.y;
+                }
+
+                // 也尝试从 colliderData 获取 radius
+                if (actor.colliderData != null && actor.colliderData.radius > 0.01f)
+                {
+                    radius = Mathf.Max(radius, actor.colliderData.radius);
+                }
 
                 EnemyData e = new EnemyData
                 {
                     ActorId = actor.id,
                     Position = pos,
-                    Height = 1.8f, // TODO: 从 StaticData_Actor.values["height"] 读取实际身高
+                    Height = height > 0.1f ? height : 1.8f,
+                    Radius = radius,
+                    BoundsCenter = boundsCenter,
+                    BoundsSize = boundsSize,
                     FractionValue = frac,
                     Dead = false,
                     Visible = visible,
@@ -81,7 +103,6 @@ namespace CwcdEsp.Data
                     MaxHp = 0f,
                 };
 
-                // 血量（LogicDataActorLife.hp -> ModableValue.value / .maxValue）
                 var life = actor.lifeData;
                 if (life != null && life.hp != null)
                 {
@@ -91,20 +112,24 @@ namespace CwcdEsp.Data
 
                 write.Add(e);
             }
+
+            // 限频日志（前3次 + 每10秒一次）
+            if ((_logCount < 3 || Time.time - _lastLogTime > 10f) && write.Count > 0)
+            {
+                _lastLogTime = Time.time;
+                _logCount++;
+                var first = write[0];
+                FileLogger.Info($"[EnemyCache] 缓存 {write.Count} 敌人。首个: pos={first.Position} boundsCenter={first.BoundsCenter} radius={first.Radius} height={first.Height}");
+            }
         }
 
-        /// <summary>主线程 Update 末尾调用：交换读写缓冲区（真正指针交换）。</summary>
         public void SwapBuffers()
         {
             var temp = _readBuffer;
             _readBuffer = _writeBuffer;
             _writeBuffer = temp;
-
-            // 调试：确认地址变化（方案 10.1）
-            // EntryPoint.Log($"Swap: read={_readBuffer.Count} write={_writeBuffer.Count}");
         }
 
-        /// <summary>任意线程读取（子弹追踪 / 绘制均调用此方法，O(1) 无遍历）。</summary>
         public List<EnemyData> GetReadBuffer() => _readBuffer;
     }
 }

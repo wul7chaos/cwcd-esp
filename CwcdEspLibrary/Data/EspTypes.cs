@@ -9,6 +9,9 @@ namespace CwcdEsp.Data
         public int ActorId;
         public Vector3 Position;     // 脚底世界坐标
         public float Height;         // 身高（用于头顶方框）
+        public float Radius;         // 碰撞半径（用于方框宽度）
+        public Vector3 BoundsCenter; // 碰撞盒中心（Unity Collider.bounds.center）
+        public Vector3 BoundsSize;   // 碰撞盒大小（Unity Collider.bounds.size）
         public int FractionValue;    // Fraction 枚举值（[Flags]）
         public bool Dead;
         public bool Visible;

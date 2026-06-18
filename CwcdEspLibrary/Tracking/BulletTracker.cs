@@ -1,64 +1,111 @@
+using System;
+using System.Reflection;
 using CwcdEsp.Utils;
 using HarmonyLib;
-using MorbidOptimism.Server;
 using UnityEngine;
 
 namespace CwcdEsp.Tracking
 {
     /// <summary>
-    /// 子弹方向修正（方案 6.3）。
+    /// 子弹方向修正（修复版：Hook GetFacingPoint Postfix 而非 Parse Prefix）。
     ///
-    /// 实现说明（基于反编译源码确认）：
-    /// - EquipSnapshot 是 public struct，from/to 均为 public 字段；
-    /// - equipSnapshot 是 LogicActionEquipBase 的 public 字段；
-    /// - LogicActionBulletBase.Parse 内部用 (equipSnapshot.to - equipSnapshot.from) 计算子弹飞行方向
-    ///   (bullet.data.facing / rotation / moveDir 均由 to-from 派生)。
-    /// 因此在 Parse 的 Prefix 中把 equipSnapshot.to 改为目标坐标（保持 from=枪口不变），
-    /// 原方法随后的计算会自动让子弹飞向目标。这满足方案"不改 from、不改 FunctionalString"的约束。
+    /// 根据反编译分析，最佳 Hook 点是 LogicControllerEquipTrigger.GetFacingPoint()，
+    /// 它返回 ValueTuple&lt;Vector3, Vector3&gt; (from, to)，在子弹创建之前就决定瞄准方向。
+    /// 修改返回值的 to → 子弹自动飞向目标，零开销。
     ///
-    /// 注：方案 v3 建议改 Patch 调用方而非 Parse；本实现因 to 为 public 数值字段、修改安全可靠，
-    ///     选择直接 Prefix Parse，并在注释中标注此偏离。若实测时序异常，可改 Patch 上层触发方法。
+    /// 但 ValueTuple 是 ref return，Harmony Postfix 难以直接修改。
+    /// 改为 Postfix + ref __result 方式：需要用 Harmony 的 ref 参数修饰。
     /// </summary>
     public static class BulletTracker
     {
-        /// <summary>注册子弹方向修正 Patch（Prefix）。</summary>
+        private static float _lastLogTime = 0f;
+        private static int _logCount = 0;
+
+        /// <summary>注册子弹方向修正 Patch。</summary>
         public static void TryRegister(Harmony harmony, ref int success, ref int fail)
         {
-            PatchGuard.TryPatch(
-                harmony,
-                "MorbidOptimism.Server.LogicActionBulletBase",
-                "Parse",
-                ref success,
-                ref fail,
-                prefixType: typeof(BulletTracker));
+            // 方案A：Hook GetFacingPoint（服务器端，在子弹创建前修正方向）
+            // GetFacingPoint 返回 ValueTuple<Vector3, Vector3>，Postfix 用 ref __result 修改
+            try
+            {
+                Type targetType = AccessTools.TypeByName("MorbidOptimism.Server.LogicControllerEquipTrigger");
+                if (targetType == null)
+                {
+                    FileLogger.Warn("[BulletTracker] 类型 LogicControllerEquipTrigger 未找到，跳过");
+                    fail++;
+                    return;
+                }
+
+                var original = AccessTools.Method(targetType, "GetFacingPoint");
+                if (original == null)
+                {
+                    FileLogger.Warn("[BulletTracker] 方法 GetFacingPoint 未找到，跳过");
+                    fail++;
+                    return;
+                }
+
+                var postfix = new HarmonyMethod(typeof(BulletTracker), nameof(Postfix));
+                harmony.Patch(original, postfix: postfix);
+                success++;
+                FileLogger.Info("[BulletTracker] OK: Patch GetFacingPoint Postfix");
+            }
+            catch (Exception ex)
+            {
+                FileLogger.Error("[BulletTracker] 注册失败: " + ex.Message, ex);
+                fail++;
+            }
         }
 
         /// <summary>
-        /// Parse 的 Prefix：在原方法计算速度向量前修正 to。
-        /// 仅在追踪开启、有有效存活目标、且偏差角在吸附范围内时干预，否则不干预（保持原弹道）。
+        /// GetFacingPoint 的 Postfix：修改返回的 (from, to) 的 to 为目标位置。
+        /// __result 是 ref ValueTuple&lt;Vector3, Vector3&gt;。
         /// </summary>
-        public static void Prefix(LogicActionBulletBase __instance)
+        public static void Postfix(ref object __result)
         {
             if (!EspConfig.BulletTrackingEnabled) return;
 
             var target = TargetSelector.CachedTarget;
             if (target == null || !target.IsValid) return;
-            if (!TargetSelector.IsTargetAlive()) return; // 存活验证（方案 6.4）
+            if (!TargetSelector.IsTargetAlive()) return;
 
-            // equipSnapshot 为 public 字段，from=枪口（保持不变），to=目标点
-            Vector3 muzzle = __instance.equipSnapshot.from;
-            Vector3 targetPos = target.Position;
+            try
+            {
+                // __result 是 ValueTuple<Vector3, Vector3>
+                // 用反射获取 Item1 (from) 和 Item2 (to)
+                Type t = __result.GetType();
+                var fromField = t.GetField("Item1");
+                var toField = t.GetField("Item2");
+                if (fromField == null || toField == null) return;
 
-            // 角度筛选：原瞄准方向 vs 目标方向
-            Vector3 aimDir = __instance.equipSnapshot.dir;       // (to-from).normalized，原瞄准
-            Vector3 targetDir = (targetPos - muzzle);
-            if (targetDir.sqrMagnitude < 1e-4f) return;
-            targetDir.Normalize();
+                Vector3 from = (Vector3)fromField.GetValue(__result);
+                Vector3 targetPos = target.Position;
 
-            if (Vector3.Angle(aimDir, targetDir) > EspConfig.TrackingAngle) return;
+                // 角度筛选
+                Vector3 aimDir = (Vector3)toField.GetValue(__result) - from;
+                if (aimDir.sqrMagnitude < 1e-4f) return;
+                aimDir.Normalize();
 
-            // 修正 to，from 不变；原 Parse 随后用 (to-from) 计算飞行方向
-            __instance.equipSnapshot.to = targetPos;
+                Vector3 targetDir = targetPos - from;
+                if (targetDir.sqrMagnitude < 1e-4f) return;
+                targetDir.Normalize();
+
+                if (Vector3.Angle(aimDir, targetDir) > EspConfig.TrackingAngle) return;
+
+                // 修改 to
+                toField.SetValue(__result, targetPos);
+
+                // 限频日志
+                if (_logCount < 5 || Time.realtimeSinceStartup - _lastLogTime > 10f)
+                {
+                    _lastLogTime = Time.realtimeSinceStartup;
+                    _logCount++;
+                    FileLogger.Info($"[BulletTracker] 修正瞄准方向: from={from} → target={targetPos} (ActorId={target.ActorId})");
+                }
+            }
+            catch (Exception ex)
+            {
+                FileLogger.Error("[BulletTracker] Postfix 异常: " + ex.Message);
+            }
         }
     }
 }
