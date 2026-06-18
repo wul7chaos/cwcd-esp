@@ -19,7 +19,7 @@ namespace CwcdEsp
         public static KeyCode ToggleBoxKey = KeyCode.F6;
         public static KeyCode ToggleLootKey = KeyCode.F7;
         public static KeyCode ToggleTrackingKey = KeyCode.F8;
-        public static KeyCode ToggleMenuKey = KeyCode.F9; // 预留：配置菜单
+        public static KeyCode ToggleMenuKey = KeyCode.Home; // Home 键：面板显示/隐藏
 
         // ===== 可调参数（方案 9.2）=====
         public static int BoxThickness = 2;            // 1~4 px

@@ -1,25 +1,33 @@
 using System.Collections.Generic;
 using CwcdEsp.Esp;
 using CwcdEsp.Utils;
+using MorbidOptimism.Client;
+using MorbidOptimism.Common;
 using UnityEngine;
 
 namespace CwcdEsp.Data
 {
     /// <summary>
-    /// 物资列表缓存 —— 逐 Actor 脏标记（方案 5.1 / v3 修复 #14）。
-    /// 仅当某 Actor 的容器发生变动（PutItem/_RemoveItem）时，标记该 Actor 为脏，
-    /// UpdateDirtyActors 只扫描脏 Actor，避免全局全量扫描造成的帧率波动。
+    /// 物资列表缓存（修复版：每帧扫描所有 Actor 获取物资位置和物品信息）。
+    ///
+    /// 数据路径：
+    ///   ActorViewerManager.dicActors → ActorViewer.actor → ActorData
+    ///     → GetLogicData&lt;LogicDataActorItems&gt;() → backpack/chestHanging (ItemContainer_Grid)
+    ///       → items (List&lt;Item&gt;) → item.data.staticDataKey → StaticData_Item.name/rarity
+    ///     → GetLogicData&lt;LogicDataActorPickable&gt;() → container (ItemContainer_Single)
+    ///       → item.data.staticDataKey → StaticData_Item.name/rarity
     /// </summary>
     public class LootCache
     {
         public static readonly LootCache Instance = new LootCache();
 
-        // actorId → 是否需要刷新
         private readonly Dictionary<int, bool> _actorDirty = new Dictionary<int, bool>(128);
-        // actorId → 物品列表缓存
         private readonly Dictionary<int, LootEntry> _loot = new Dictionary<int, LootEntry>(128);
-        // 绘制用快照（主线程刷新，OnGUI 读取）
         private readonly List<LootEntry> _snapshot = new List<LootEntry>(128);
+
+        // 日志限频
+        private static int _scanLogCount = 0;
+        private static float _lastScanLogTime = 0f;
 
         public void Init()
         {
@@ -28,7 +36,6 @@ namespace CwcdEsp.Data
             _snapshot.Clear();
         }
 
-        /// <summary>容器变动时调用：标记该 Actor 为脏（细化到单个 Actor，非全局）。</summary>
         public void MarkDirty(int actorId)
         {
             if (actorId <= 0) return;
@@ -36,44 +43,149 @@ namespace CwcdEsp.Data
         }
 
         /// <summary>
-        /// 主线程 Update Postfix 调用：仅扫描脏 Actor 的容器，刷新后清除脏标记。
+        /// 主线程每帧调用：扫描所有 Actor，找到有物品容器的 Actor 并记录位置和物品。
+        /// 注：不再依赖脏标记（脏标记只用于触发增量更新），每帧全量扫描位置保证位置准确。
         /// </summary>
+        public void ScanAllActors(ActorViewerManager mgr)
+        {
+            if (mgr == null || mgr.dicActors == null) return;
+
+            // 清空旧数据（位置每帧更新，物品也每帧重建以确保准确）
+            _loot.Clear();
+
+            int foundCount = 0;
+            var dic = mgr.dicActors;
+            foreach (var kv in dic)
+            {
+                ActorViewer viewer = kv.Value;
+                if (viewer == null) continue;
+                ActorData actor = viewer.actor;
+                if (actor == null) continue;
+                if (actor.dead) continue;
+
+                // 检查是否有物品逻辑数据
+                var items = actor.GetLogicData<LogicDataActorItems>();
+                var pickable = actor.GetLogicData<LogicDataActorPickable>();
+
+                if (items == null && pickable == null) continue;
+
+                LootEntry entry = new LootEntry
+                {
+                    ActorId = actor.id,
+                    Position = actor.position,
+                    ContainerName = pickable != null ? "掉落物" : "容器",
+                };
+
+                // 扫描 LogicDataActorItems 的容器
+                if (items != null)
+                {
+                    ScanGridContainer(items.backpack, entry);
+                    ScanGridContainer(items.chestHanging, entry);
+                }
+
+                // 扫描 LogicDataActorPickable 的容器
+                if (pickable != null && pickable.container != null)
+                {
+                    ScanSingleContainer(pickable.container, entry);
+                }
+
+                if (entry.Items.Count > 0)
+                {
+                    _loot[actor.id] = entry;
+                    foundCount++;
+                }
+            }
+
+            // 限频日志（每5秒最多一次）
+            if (Time.time - _lastScanLogTime > 5f && _scanLogCount < 3)
+            {
+                _lastScanLogTime = Time.time;
+                _scanLogCount++;
+                FileLogger.Info($"[LootCache] 扫描完成: 找到 {foundCount} 个有物品的容器");
+            }
+        }
+
+        private void ScanGridContainer(ItemContainer_Grid grid, LootEntry entry)
+        {
+            if (grid == null || grid.items == null) return;
+            for (int i = 0; i < grid.items.Count; i++)
+            {
+                AddItem(grid.items[i], entry);
+            }
+        }
+
+        private void ScanSingleContainer(ItemContainer_Single container, LootEntry entry)
+        {
+            // ItemContainer_Single 应该有 item 字段或类似
+            // 从反编译源码看，它继承自 IItemContainer
+            // 尝试用反射获取 item
+            try
+            {
+                var itemField = container.GetType().GetField("item");
+                if (itemField != null)
+                {
+                    var item = itemField.GetValue(container) as Item;
+                    if (item != null) AddItem(item, entry);
+                    return;
+                }
+                // 备选：尝试 GetItemEnumerator
+                var enumMethod = container.GetType().GetMethod("GetItemEnumerator");
+                if (enumMethod != null)
+                {
+                    var enumerator = enumMethod.Invoke(container, null) as IEnumerable<Item>;
+                    if (enumerator != null)
+                    {
+                        foreach (var item in enumerator)
+                        {
+                            AddItem(item, entry);
+                        }
+                    }
+                }
+            }
+            catch { /* 反射失败忽略 */ }
+        }
+
+        private void AddItem(Item item, LootEntry entry)
+        {
+            if (item == null || item.data == null) return;
+            try
+            {
+                string name = item.data.staticDataKey;
+                int rarity = 0;
+                // 尝试获取 staticData（可能抛异常如果 StaticDataManager 未初始化）
+                var sd = item.data.staticData;
+                if (sd != null)
+                {
+                    name = sd.name;
+                    rarity = sd.rarity;
+                }
+                entry.Items.Add(new LootItem
+                {
+                    Name = name,
+                    Rarity = rarity,
+                    Count = 1,
+                });
+            }
+            catch
+            {
+                // StaticDataManager 可能未就绪，用 staticDataKey 兜底
+                entry.Items.Add(new LootItem
+                {
+                    Name = item.data.staticDataKey ?? "???",
+                    Rarity = 0,
+                    Count = 1,
+                });
+            }
+        }
+
+        /// <summary>脏标记刷新（保留接口兼容，实际扫描在 ScanAllActors 中完成）。</summary>
         public void UpdateDirtyActors()
         {
-            if (_actorDirty.Count == 0) return;
-
-            // 收集脏 ActorId（边遍历边改字典不安全，先转列表）
-            var dirtyIds = new List<int>(_actorDirty.Count);
-            foreach (var kv in _actorDirty)
-            {
-                if (kv.Value) dirtyIds.Add(kv.Key);
-            }
-
-            foreach (int actorId in dirtyIds)
-            {
-                // TODO: 通过 actorId 定位 ActorData + 其 LogicDataActorItems/LogicDataActorPickable 容器，
-                //       调用 ScanContainer 扫描物品并写入 _loot[actorId]。
-                //       数据路径见方案 5.1/5.2：
-                //         item.data.staticDataKey → Singleton<StaticDataManager>.GetInstance().item[key]
-                //           → name / rarity(0~4) / type
-                //       此处为基础骨架，具体扫描逻辑在 LootScanner（待实现）中补全。
-                ScanContainer(actorId);
-                _actorDirty[actorId] = false;
-            }
+            // 脏标记清空（ScanAllActors 已全量扫描）
+            if (_actorDirty.Count > 0) _actorDirty.Clear();
         }
 
-        /// <summary>扫描单个 Actor 的容器，更新缓存条目（骨架）。</summary>
-        private void ScanContainer(int actorId)
-        {
-            // 占位：实际实现需读取游戏容器数据。
-            // 保留缓存条目，避免绘制空引用。
-            if (!_loot.ContainsKey(actorId))
-            {
-                _loot[actorId] = new LootEntry { ActorId = actorId };
-            }
-        }
-
-        /// <summary>主线程 Update 末尾：重建绘制快照（含距离/视锥/稀有度剔除）。</summary>
+        /// <summary>主线程 Update 末尾：重建绘制快照（含距离/稀有度剔除）。</summary>
         public void RebuildSnapshot()
         {
             _snapshot.Clear();
@@ -86,34 +198,10 @@ namespace CwcdEsp.Data
                 LootEntry entry = kv.Value;
                 // 距离剔除
                 if (cam != null && (entry.Position - camPos).sqrMagnitude > maxDistSq) continue;
-                // 稀有度过滤：至少有一个物品达到最小稀有度才显示
-                if (!HasMinRarity(entry)) continue;
                 _snapshot.Add(entry);
             }
         }
 
-        private bool HasMinRarity(LootEntry entry)
-        {
-            if (EspConfig.MinRarity <= 0) return true;
-            for (int i = 0; i < entry.Items.Count; i++)
-            {
-                if (entry.Items[i].Rarity >= EspConfig.MinRarity) return true;
-            }
-            return false;
-        }
-
-        /// <summary>OnGUI 绘制时读取。</summary>
         public List<LootEntry> GetSnapshot() => _snapshot;
-
-        /// <summary>供 LootScanner 写入位置（容器世界坐标）。</summary>
-        public void SetLootPosition(int actorId, Vector3 pos)
-        {
-            if (!_loot.TryGetValue(actorId, out var entry))
-            {
-                entry = new LootEntry { ActorId = actorId };
-                _loot[actorId] = entry;
-            }
-            entry.Position = pos;
-        }
     }
 }

@@ -7,7 +7,7 @@ namespace CwcdEsp.Patches
 {
     /// <summary>
     /// Patch ActorViewerManager.Update —— Postfix（方案 3.3 数据流向 / v3 双缓冲）。
-    /// 主线程每帧执行：填充写缓冲 → 指针交换 → 物资脏标记刷新 → 目标选择 → 热键轮询。
+    /// 主线程每帧执行：热键 → 敌人缓存 → 双缓冲交换 → 物资扫描 → 目标选择。
     /// </summary>
     public static class Patch_ActorUpdate
     {
@@ -24,8 +24,8 @@ namespace CwcdEsp.Patches
                 // 3. 双缓冲指针交换（主线程末尾，O(1)）
                 EnemyCache.Instance.SwapBuffers();
 
-                // 4. 物资：仅刷新脏 Actor + 重建绘制快照
-                LootCache.Instance.UpdateDirtyActors();
+                // 4. 物资：每帧全量扫描位置和物品 + 重建绘制快照
+                LootCache.Instance.ScanAllActors(__instance);
                 LootCache.Instance.RebuildSnapshot();
 
                 // 5. 目标选择（O(N)，含降频视线检测）
@@ -33,7 +33,7 @@ namespace CwcdEsp.Patches
             }
             catch (System.Exception e)
             {
-                EntryPoint.Log("ActorUpdate Postfix 异常: " + e.Message);
+                FileLogger.Error("ActorUpdate Postfix 异常: " + e.Message, e);
             }
         }
     }

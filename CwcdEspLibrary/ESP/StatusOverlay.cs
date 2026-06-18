@@ -28,8 +28,8 @@ namespace CwcdEsp.Esp
 
             float x = 10f;
             float y = 10f;
-            float w = 280f;
-            float lineH = 18f;
+            float w = 220f;
+            float lineH = 16f;
 
             int enemyCount = 0;
             int lootCount = 0;
@@ -37,7 +37,7 @@ namespace CwcdEsp.Esp
             try { lootCount = LootCache.Instance.GetSnapshot()?.Count ?? 0; } catch { }
 
             // 计算面板高度
-            int lines = 7;
+            int lines = 5;
             float h = lines * lineH + 12f;
 
             // 半透明背景
@@ -48,20 +48,13 @@ namespace CwcdEsp.Esp
             DrawText(x + 8, cy, $"Patch: {PatchSuccess} OK / {PatchFail} FAIL",
                      PatchFail > 0 ? FailColor : OkColor, false); cy += lineH;
 
-            // 功能开关
-            DrawText(x + 8, cy,
-                $"F6 方框透视 : {(EspConfig.BoxEspEnabled ? "ON " : "OFF")}",
-                EspConfig.BoxEspEnabled ? OkColor : DimColor, false); cy += lineH;
-            DrawText(x + 8, cy,
-                $"F7 物资透视 : {(EspConfig.LootEspEnabled ? "ON " : "OFF")}",
-                EspConfig.LootEspEnabled ? OkColor : DimColor, false); cy += lineH;
-            DrawText(x + 8, cy,
-                $"F8 子弹追踪 : {(EspConfig.BulletTrackingEnabled ? "ON " : "OFF")}",
-                EspConfig.BulletTrackingEnabled ? OkColor : DimColor, false); cy += lineH;
-
-            // 实时计数
+            // 功能开关状态（紧凑单行）
+            string status = $"{(EspConfig.BoxEspEnabled ? "[ESP]" : " esp ")} " +
+                            $"{(EspConfig.LootEspEnabled ? "[物资]" : " 物资 ")} " +
+                            $"{(EspConfig.BulletTrackingEnabled ? "[追踪]" : " 追踪 ")}";
+            DrawText(x + 8, cy, status, OkColor, false); cy += lineH;
             DrawText(x + 8, cy, $"敌人: {enemyCount}  物资: {lootCount}", DimColor, false); cy += lineH;
-            DrawText(x + 8, cy, "F9 隐藏面板", DimColor, false); cy += lineH;
+            DrawText(x + 8, cy, "Home 隐藏面板", DimColor, false); cy += lineH;
         }
 
         private static void DrawBgRect(float x, float y, float w, float h)

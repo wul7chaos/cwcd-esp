@@ -1,5 +1,6 @@
 using CwcdEsp.Data;
 using CwcdEsp.Esp;
+using CwcdEsp.Utils;
 using UnityEngine;
 
 namespace CwcdEsp.Tracking
@@ -17,11 +18,17 @@ namespace CwcdEsp.Tracking
         private static float _lastSightCheckTime = -1f;
         private static bool _lastSightVisible = true;
 
+        // 缓存活目标 ActorId 集合（每帧更新），供 IsTargetAlive O(1) 查询
+        private static readonly System.Collections.Generic.HashSet<int> _aliveSet = new System.Collections.Generic.HashSet<int>(64);
+
         /// <summary>主线程每帧调用（由 Patch_ActorUpdate.Postfix 触发）。</summary>
         public static void Update()
         {
             var enemies = EnemyCache.Instance.GetReadBuffer();
             Camera cam = ScreenTools.Cam;
+
+            // 更新存活集合
+            _aliveSet.Clear();
 
             if (!EspConfig.BulletTrackingEnabled || cam == null || enemies == null || enemies.Count == 0)
             {
@@ -41,6 +48,8 @@ namespace CwcdEsp.Tracking
             {
                 EnemyData e = enemies[i];
                 if (e.Dead) continue;
+
+                _aliveSet.Add(e.ActorId);
 
                 Vector3 to = e.Position - origin;
                 float distSq = to.sqrMagnitude;
@@ -103,19 +112,11 @@ namespace CwcdEsp.Tracking
             return true;
         }
 
-        /// <summary>目标是否仍存活（供 BulletTracker 校验，方案 6.4 存活验证）。</summary>
+        /// <summary>目标是否仍存活（O(1) HashSet 查询，供 BulletTracker 调用）。</summary>
         public static bool IsTargetAlive()
         {
             if (!CachedTarget.IsValid) return false;
-            // 读缓冲区中若已无该 Actor（死亡/移除）则视为不存活
-            var enemies = EnemyCache.Instance.GetReadBuffer();
-            if (enemies == null) return false;
-            for (int i = 0; i < enemies.Count; i++)
-            {
-                if (enemies[i].ActorId == CachedTarget.ActorId)
-                    return !enemies[i].Dead;
-            }
-            return false;
+            return _aliveSet.Contains(CachedTarget.ActorId);
         }
     }
 }
