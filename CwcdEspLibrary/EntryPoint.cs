@@ -22,82 +22,143 @@ namespace CwcdEsp
         {
             if (_loaded)
             {
-                Log("Load 已执行过，跳过重复初始化");
+                FileLogger.Info("Load 已执行过，跳过重复初始化");
                 return;
             }
-            _loaded = true;
 
-            Log("========== CWCD-ESP v3 启动 ==========");
+            // ===== 日志系统最先初始化，后续所有步骤都有日志 =====
+            try
+            {
+                FileLogger.Init();
+            }
+            catch (Exception ex)
+            {
+                // 极端情况：日志初始化本身失败。用 UnityEngine.Debug 兜底
+                try { UnityEngine.Debug.Log("[CWCD-ESP] FileLogger.Init 失败: " + ex); } catch { }
+            }
 
-            // 1. 初始化缓存
-            EnemyCache.Instance.Init();
-            LootCache.Instance.Init();
+            FileLogger.Info("========== CWCD-ESP v3 启动 ==========");
 
-            // 2. Harmony 实例
-            _harmony = new Harmony(HarmonyId);
+            try
+            {
+                _loaded = true;
 
-            int success = 0, fail = 0;
+                // 1. 初始化缓存
+                FileLogger.Info("初始化 EnemyCache / LootCache...");
+                EnemyCache.Instance.Init();
+                LootCache.Instance.Init();
+                FileLogger.Info("缓存初始化完成");
 
-            // 3. 逐条注册 Patch（每条独立容错）
-            //    OnGUI 仅 Postfix，在 Postfix 内用 Event.current.type 过滤 Repaint（方案 v3 修复 #12）
-            PatchGuard.TryPatch(_harmony, "GameController", "OnGUI",
-                ref success, ref fail,
-                postfixType: typeof(Patch_OnGUI));
+                // 2. Harmony 实例
+                FileLogger.Info("创建 Harmony 实例 (id=" + HarmonyId + ")...");
+                _harmony = new Harmony(HarmonyId);
+                FileLogger.Info("Harmony 实例创建完成");
 
-            // ActorViewerManager.Update Postfix → 填充写缓冲 + Swap + 物资脏标记刷新
-            PatchGuard.TryPatch(_harmony, "MorbidOptimism.Client.ActorViewerManager", "Update",
-                ref success, ref fail,
-                postfixType: typeof(Patch_ActorUpdate));
+                int success = 0, fail = 0;
 
-            // CamController：缓存 camMain（注意：源码无 Start()，改用 LateUpdate Postfix，方案 v3 偏离说明）
-            PatchGuard.TryPatch(_harmony, "CamController", "LateUpdate",
-                ref success, ref fail,
-                postfixType: typeof(Patch_Camera));
+                // 3. 逐条注册 Patch（每条独立容错）
+                FileLogger.Info("===== 开始注册 Patch =====");
 
-            // 散布归零
-            PatchGuard.TryPatch(_harmony, "MorbidOptimism.Server.LogicControllerEquipReload", "GetSpreadAngle",
-                ref success, ref fail,
-                postfixType: typeof(Patch_Spread));
+                // OnGUI
+                RegisterPatch("GameController", "OnGUI",
+                    ref success, ref fail,
+                    postfixType: typeof(Patch_OnGUI));
 
-            // 子弹方向修正：Patch LogicActionBulletBase.Parse Prefix（方案 v3 偏离说明：直接改 equipSnapshot.to）
-            BulletTracker.TryRegister(_harmony, ref success, ref fail);
+                // ActorUpdate
+                RegisterPatch("MorbidOptimism.Client.ActorViewerManager", "Update",
+                    ref success, ref fail,
+                    postfixType: typeof(Patch_ActorUpdate));
 
-            // 容器变动 → 逐 Actor 脏标记
-            PatchGuard.TryPatch(_harmony, "MorbidOptimism.Common.ItemContainer_Grid", "PutItem",
-                ref success, ref fail,
-                postfixType: typeof(Patch_ItemContainer));
-            // 注：源码 ItemContainer_Grid 无公开 TakeItem，移除走私有 _RemoveItem；如需覆盖可改 Patch _RemoveItem
-            PatchGuard.TryPatch(_harmony, "MorbidOptimism.Common.ItemContainer_Grid", "_RemoveItem",
-                ref success, ref fail,
-                postfixType: typeof(Patch_ItemContainer));
+                // Camera (LateUpdate)
+                RegisterPatch("CamController", "LateUpdate",
+                    ref success, ref fail,
+                    postfixType: typeof(Patch_Camera));
 
-            Log($"Patch 注册完成：成功 {success}，失败 {fail}");
+                // Spread
+                RegisterPatch("MorbidOptimism.Server.LogicControllerEquipReload", "GetSpreadAngle",
+                    ref success, ref fail,
+                    postfixType: typeof(Patch_Spread));
 
-            // 4. 热键监听（挂在 OnGUI 流里轮询，无需额外线程）
-            HotkeyManager.Start();
+                // Bullet tracking
+                FileLogger.Info("注册 BulletTracker...");
+                try
+                {
+                    BulletTracker.TryRegister(_harmony, ref success, ref fail);
+                }
+                catch (Exception ex)
+                {
+                    FileLogger.Error("BulletTracker.TryRegister 异常", ex);
+                    fail++;
+                }
 
-            Log("========== CWCD-ESP 启动完成 ==========");
+                // ItemContainer PutItem
+                RegisterPatch("MorbidOptimism.Common.ItemContainer_Grid", "PutItem",
+                    ref success, ref fail,
+                    postfixType: typeof(Patch_ItemContainer));
+
+                // ItemContainer _RemoveItem
+                RegisterPatch("MorbidOptimism.Common.ItemContainer_Grid", "_RemoveItem",
+                    ref success, ref fail,
+                    postfixType: typeof(Patch_ItemContainer));
+
+                FileLogger.Info($"===== Patch 注册完成：成功 {success}，失败 {fail} =====");
+
+                // 4. 热键监听
+                FileLogger.Info("启动热键监听...");
+                HotkeyManager.Start();
+                FileLogger.Info("热键监听已启动");
+
+                FileLogger.Info("========== CWCD-ESP 启动完成 ==========");
+            }
+            catch (Exception ex)
+            {
+                FileLogger.Error("========== EntryPoint.Load 发生未捕获异常 ==========", ex);
+                FileLogger.Error("ESP 功能可能不完整，请查看上方日志定位问题");
+                // 不 re-throw：吞掉异常避免游戏崩溃
+            }
+        }
+
+        /// <summary>单条 Patch 注册 + 日志。</summary>
+        private static void RegisterPatch(
+            string typeName, string methodName,
+            ref int success, ref int fail,
+            Type prefixType = null, Type postfixType = null)
+        {
+            FileLogger.Info($"注册 Patch: {typeName}.{methodName}...");
+            try
+            {
+                PatchGuard.TryPatch(_harmony, typeName, methodName,
+                    ref success, ref fail,
+                    prefixType, postfixType);
+            }
+            catch (Exception ex)
+            {
+                FileLogger.Error($"RegisterPatch({typeName}.{methodName}) 异常", ex);
+                fail++;
+            }
         }
 
         /// <summary>卸载（可选）：移除所有 Patch。</summary>
         public static void Unload()
         {
+            FileLogger.Info("===== 开始卸载 =====");
             try
             {
                 _harmony?.UnpatchAll(HarmonyId);
-                Log("已卸载所有 Patch");
+                FileLogger.Info("已卸载所有 Patch");
             }
             catch (Exception e)
             {
-                Log("Unload 异常: " + e.Message);
+                FileLogger.Error("Unload 异常", e);
             }
             _loaded = false;
+            FileLogger.Info("===== 卸载完成 =====");
         }
 
-        /// <summary>统一日志输出（写入口志 + 控制台）。</summary>
+        /// <summary>统一日志输出（兼容旧调用，转发到 FileLogger + UnityEngine.Debug）。</summary>
         public static void Log(string msg)
         {
-            // 游戏内 Debug.Log 会在控制台与日志文件同时输出
+            FileLogger.Info(msg);
             try { UnityEngine.Debug.Log("[CWCD-ESP] " + msg); } catch { }
         }
     }

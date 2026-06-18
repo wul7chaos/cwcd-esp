@@ -1,3 +1,4 @@
+using Serilog;
 using System;
 using System.Collections.Generic;
 using System.Text;
@@ -9,9 +10,10 @@ namespace CwcdEsp.Injector;
 ///
 /// 流程：
 ///   1) 打开进程
-///   2) 解析 mono-2.0-sgen.dll 的导出表，取得 mono_* 函数在目标进程的真实地址
+///   2) 解析 mono-2.0-bdwgc.dll 的导出表，取得 mono_* 函数在目标进程的真实地址
 ///   3) 在目标进程分配：数据结构 + 各字符串 + x64 shellcode
 ///   4) CreateRemoteThread 执行 shellcode（参数 = 数据结构地址）
+///   5) 读取全部 5 个中间值（root/asm/image/klass/method）诊断失败步骤
 ///
 /// shellcode 执行的调用链（Windows x64 调用约定，rcx/rdx/r8/r9 传参，32B 影子空间）：
 ///   root   = mono_get_root_domain()
@@ -22,7 +24,10 @@ namespace CwcdEsp.Injector;
 ///   method = mono_class_get_method_from_name(klass, methodName, 0)
 ///   mono_runtime_invoke(method, null, null, null)   →  执行 EntryPoint.Load()
 ///
-/// ⚠️ shellcode 为 x64 机器码，仅在 64 位目标进程下有效。首次使用务必用调试器/日志验证。
+/// 数据结构布局（rbx 始终指向它，128 字节）：
+///   0x00..0x37  函数指针表(7×8=56)
+///   0x38..0x57  字符串指针(4×8=32): pAssembly, pNamespace, pClass, pMethod
+///   0x58..0x7F  输出字段(5×8=40): root, asm, image, klass, method
 /// </summary>
 internal sealed class MonoInjector : IDisposable
 {
@@ -35,8 +40,8 @@ internal sealed class MonoInjector : IDisposable
             throw new Exception($"OpenProcess 失败（需管理员权限），错误码={MarshalSystem.GetLastError()}");
     }
 
-    /// <summary>执行注入。</summary>
-    public void Inject(IntPtr monoBase, string assemblyPath, string ns, string className, string methodName)
+    /// <summary>执行注入。返回 true=成功，false=部分失败（查看日志诊断）。</summary>
+    public bool Inject(IntPtr monoBase, string assemblyPath, string ns, string className, string methodName)
     {
         if (_hProcess == IntPtr.Zero) throw new Exception("进程未打开");
 
@@ -51,23 +56,24 @@ internal sealed class MonoInjector : IDisposable
             "mono_class_get_method_from_name",
             "mono_runtime_invoke",
         };
-        Console.WriteLine("[*] 解析 mono 导出表...");
+        Log.Information("解析 mono 导出表...");
         Dictionary<string, IntPtr> funcs = RemotePe.ResolveExports(_hProcess, monoBase, exports);
 
         foreach (var kv in funcs)
         {
             if (kv.Value == IntPtr.Zero)
                 throw new Exception($"未能解析导出函数: {kv.Key}");
-            Console.WriteLine($"    {kv.Key} = 0x{kv.Value.ToInt64():X}");
+            Log.Information("  {Name} = 0x{Addr:X}", kv.Key, kv.Value.ToInt64());
         }
 
         // 2. 分配字符串（ASCII, 以 \0 结尾）
+        Log.Information("写入字符串: assemblyPath={Path}", assemblyPath);
         IntPtr pAssembly = WriteString(assemblyPath);
         IntPtr pNamespace = WriteString(ns);
         IntPtr pClass = WriteString(className);
         IntPtr pMethod = WriteString(methodName);
 
-        // 3. 构造数据结构（128 字节，布局见下方注释）
+        // 3. 构造数据结构（128 字节）
         byte[] data = new byte[128];
         WriteI64(data, 0, funcs["mono_get_root_domain"].ToInt64());
         WriteI64(data, 8, funcs["mono_thread_attach"].ToInt64());
@@ -80,42 +86,87 @@ internal sealed class MonoInjector : IDisposable
         WriteI64(data, 64, pNamespace.ToInt64());
         WriteI64(data, 72, pClass.ToInt64());
         WriteI64(data, 80, pMethod.ToInt64());
-        // 88..120: 输出字段（root/asm/image/klass/method），由 shellcode 回写
+        // 88..127: 输出字段（root/asm/image/klass/method），由 shellcode 回写
 
         IntPtr pData = AllocAndWrite(data, Win32.PAGE_READWRITE);
-        Console.WriteLine($"[+] 数据结构 @ 0x{pData.ToInt64():X}");
+        Log.Information("数据结构 @ 0x{Addr:X}", pData.ToInt64());
 
         // 4. shellcode
         byte[] shellcode = BuildShellcode();
         IntPtr pCode = AllocAndWrite(shellcode, Win32.PAGE_EXECUTE_READWRITE);
-        Console.WriteLine($"[+] shellcode  @ 0x{pCode.ToInt64():X} ({shellcode.Length} bytes)");
+        Log.Information("shellcode @ 0x{Addr:X} ({Len} bytes)", pCode.ToInt64(), shellcode.Length);
 
         // 5. CreateRemoteThread(shellcode, param=pData)
         IntPtr hThread = Win32.CreateRemoteThread(_hProcess, IntPtr.Zero, 0, pCode, pData, 0, out uint tid);
         if (hThread == IntPtr.Zero)
             throw new Exception($"CreateRemoteThread 失败，错误码={MarshalSystem.GetLastError()}");
-        Console.WriteLine($"[+] 远程线程已创建 tid={tid}，等待执行完成...");
+        Log.Information("远程线程已创建 tid={Tid}，等待执行完成...", tid);
 
         Win32.WaitForSingleObject(hThread, Win32.INFINITE);
         Win32.GetExitCodeThread(hThread, out uint exitCode);
         Win32.CloseHandle(hThread);
-        Console.WriteLine($"[*] 远程线程退出，code={exitCode}");
+        Log.Information("远程线程退出，code={Code} (0x{Hex:X})", exitCode, exitCode);
 
-        // 6. 读取回写的输出字段（诊断用）
+        // 0xE06D7363 = C++ EH 异常（Mono 内部抛出）
+        if (exitCode == 0xE06D7363)
+        {
+            Log.Warning("退出码 0xE06D7363 = C++ 异常，Mono 运行时内部出错（通常是依赖解析失败或类型加载失败）");
+        }
+
+        // 6. 读取全部 5 个中间值，精确定位失败步骤
         byte[] result = new byte[128];
         Win32.ReadProcessMemory(_hProcess, pData, result, (nuint)result.Length, out _);
-        long methodPtr = BitConverter.ToInt64(result, 120);
-        Console.WriteLine(methodPtr != 0
-            ? $"[√] mono_runtime_invoke 已调用，method=0x{methodPtr:X}（注入成功）"
-            : "[?] method 指针为 0，请检查路径/命名空间/类名/方法名是否正确");
 
-        // 7. 清理（保留注入的内存，避免回写阶段访问已释放区域）
+        long rootPtr   = BitConverter.ToInt64(result, 0x58);
+        long asmPtr    = BitConverter.ToInt64(result, 0x60);
+        long imagePtr  = BitConverter.ToInt64(result, 0x68);
+        long klassPtr  = BitConverter.ToInt64(result, 0x70);
+        long methodPtr = BitConverter.ToInt64(result, 0x78);
+
+        Log.Information("===== 注入诊断 =====");
+        Log.Information("  mono_get_root_domain()          = 0x{Val:X}  {Status}", rootPtr, rootPtr != 0 ? "OK" : "FAIL");
+        Log.Information("  mono_domain_assembly_open()     = 0x{Val:X}  {Status}", asmPtr, asmPtr != 0 ? "OK" : "FAIL");
+        Log.Information("  mono_assembly_get_image()       = 0x{Val:X}  {Status}", imagePtr, imagePtr != 0 ? "OK" : "FAIL");
+        Log.Information("  mono_class_from_name()          = 0x{Val:X}  {Status}", klassPtr, klassPtr != 0 ? "OK" : "FAIL");
+        Log.Information("  mono_class_get_method_from_name() = 0x{Val:X}  {Status}", methodPtr, methodPtr != 0 ? "OK" : "FAIL");
+
+        // 逐步诊断
+        if (rootPtr == 0)
+            Log.Error("FAIL: mono_get_root_domain 返回 NULL — Mono 运行时未初始化");
+        else if (asmPtr == 0)
+        {
+            Log.Error("FAIL: mono_domain_assembly_open 返回 NULL — 无法加载程序集");
+            Log.Error("  可能原因: 文件路径错误 / 文件不存在 / 程序集格式损坏 / 依赖 DLL(0Harmony) 缺失");
+            Log.Error("  程序集路径: {Path}", assemblyPath);
+        }
+        else if (imagePtr == 0)
+            Log.Error("FAIL: mono_assembly_get_image 返回 NULL — 程序集已加载但无法获取 image");
+        else if (klassPtr == 0)
+        {
+            Log.Error("FAIL: mono_class_from_name 返回 NULL — 类未找到");
+            Log.Error("  命名空间: {Ns}, 类名: {Class}", ns, className);
+        }
+        else if (methodPtr == 0)
+        {
+            Log.Error("FAIL: mono_class_get_method_from_name 返回 NULL — 方法未找到");
+            Log.Error("  类: {Ns}.{Class}, 方法名: {Method}", ns, className, methodName);
+        }
+        else
+        {
+            Log.Information("OK: 全部步骤通过，mono_runtime_invoke 已调用 method=0x{Val:X}", methodPtr);
+        }
+
+        bool success = methodPtr != 0;
+
+        // 7. 清理
         VirtualFreeSafe(pCode);
         VirtualFreeSafe(pData);
         VirtualFreeSafe(pAssembly);
         VirtualFreeSafe(pNamespace);
         VirtualFreeSafe(pClass);
         VirtualFreeSafe(pMethod);
+
+        return success;
     }
 
     /// <summary>
@@ -125,7 +176,6 @@ internal sealed class MonoInjector : IDisposable
     /// </summary>
     private static byte[] BuildShellcode()
     {
-        // 每条指令均为手工核对的 x64 编码（见顶部注释）
         return new byte[]
         {
             0x48, 0x83, 0xEC, 0x28,             // sub rsp, 28h

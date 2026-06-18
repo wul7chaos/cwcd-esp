@@ -38,14 +38,14 @@ namespace CwcdEsp.Utils
                 Type targetType = AccessTools.TypeByName(targetTypeName);
                 if (targetType == null)
                 {
-                    EntryPoint.Log($"WARN: 类型 {targetTypeName} 未找到，跳过 {targetMethodName}");
+                    FileLogger.Warn($"类型 {targetTypeName} 未找到，跳过 {targetMethodName}");
                     fail++;
                     return;
                 }
                 var original = AccessTools.Method(targetType, targetMethodName);
                 if (original == null)
                 {
-                    EntryPoint.Log($"WARN: 方法 {targetTypeName}.{targetMethodName} 未找到，跳过");
+                    FileLogger.Warn($"方法 {targetTypeName}.{targetMethodName} 未找到，跳过");
                     fail++;
                     return;
                 }
@@ -59,11 +59,11 @@ namespace CwcdEsp.Utils
 
                 harmony.Patch(original, prefix, postfix);
                 success++;
-                EntryPoint.Log($"OK: Patch {targetTypeName}.{targetMethodName}");
+                FileLogger.Info($"OK: Patch {targetTypeName}.{targetMethodName}");
             }
             catch (Exception e)
             {
-                EntryPoint.Log($"ERROR: 注册 {targetTypeName}.{targetMethodName} 失败: {e.Message}");
+                FileLogger.Error($"注册 {targetTypeName}.{targetMethodName} 失败: {e.Message}", e);
                 fail++;
             }
         }
