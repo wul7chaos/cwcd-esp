@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    CwcdEspInjector — 外部注入器（独立控制台程序）
+    目标框架：.NET 10.0（独立于游戏，不依赖游戏 DLL）
+    职责：查找游戏进程 → 通过 Mono API 把 CwcdEspLibrary.dll 注入并调用 EntryPoint.Load()
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>CwcdEsp.Injector</RootNamespace>
+    <AssemblyName>CwcdEspInjector</AssemblyName>
+    <OutputType>Exe</OutputType>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <!-- 生成单文件、自包含可执行（按需） -->
+    <PublishSingleFile>false</PublishSingleFile>
+    <SelfContained>false</SelfContained>
+  </PropertyGroup>
+
+</Project>

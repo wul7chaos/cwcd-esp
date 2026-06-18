@@ -1,0 +1,46 @@
+# ===== 编译输出 =====
+bin/
+obj/
+[Bb]uild/
+[Dd]eploy/
+
+# ===== IDE / 编辑器 =====
+.vs/
+*.user
+*.suo
+*.DotSettings.user
+*.DotSettings
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ===== 本地配置（含本机游戏路径，不应提交）=====
+*local.props
+GamePaths.local.props
+
+# ===== 工作区本地记忆/缓存 =====
+.workbuddy/
+
+# ===== 反编译参考源码（非本项目代码，含版权可能）=====
+decompile_Assembly-CSharp/
+
+# ===== 临时检查工具 =====
+scripts/inspect_asm/
+
+# ===== 环境说明文件 =====
+AI_ENV_NOTES.md
+
+# ===== 项目方案 =====
+CWCD-ESP_项目方案.md
+
+# ===== macOS =====
+.DS_Store
+
+# ===== Windows =====
+Thumbs.db
+
+# ===== NuGet =====
+packages/
+*.nupkg

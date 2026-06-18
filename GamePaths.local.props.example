@@ -1,0 +1,12 @@
+<!--
+  本地游戏路径配置示例。
+  使用方法：复制本文件为 GamePaths.local.props（去掉 .example），然后把 GameManagedDir 改成你机器上游戏的 Managed 文件夹路径。
+  Managed 文件夹通常位于：<Steam>\steamapps\common\<游戏名>\<游戏名>_Data\Managed
+  判断标志：该目录下应存在 Assembly-CSharp.dll 与 UnityEngine.CoreModule.dll。
+  游戏可执行文件：NoSuchPlace.exe（Unity 6 + MonoBleedingEdge 后端）
+-->
+<Project>
+  <PropertyGroup>
+    <GameManagedDir>D:\SteamLibrary\steamapps\common\查无此地 Demo\release\NoSuchPlace_Data\Managed</GameManagedDir>
+  </PropertyGroup>
+</Project>
