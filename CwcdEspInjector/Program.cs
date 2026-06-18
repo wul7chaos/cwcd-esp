@@ -53,6 +53,9 @@ internal static class Program
         }
         Log.Information("已定位进程: {ProcessName} (pid={Pid})", process.ProcessName, process.Id);
 
+        // 1.5 等待游戏窗口加载（确保 Mono 运行时已初始化 root domain）
+        WaitForGameWindow(process);
+
         // 2. 定位 mono 模块
         if (!ProcessFinder.TryFindMonoModule(process, out IntPtr monoBase, out nuint monoSize))
         {
@@ -66,30 +69,86 @@ internal static class Program
         // 3. 注入前：把依赖 DLL（0Harmony.dll）拷贝到游戏 Managed 目录
         EnsureDependenciesInManagedDir(process, assemblyPath);
 
-        // 4. 注入
-        try
+        // 4. 注入（带重试：Mono root domain 可能尚未就绪）
+        int maxRetries = 5;
+        for (int attempt = 1; attempt <= maxRetries; attempt++)
         {
-            using var injector = new MonoInjector();
-            injector.Open((uint)process.Id);
-            bool ok = injector.Inject(monoBase, assemblyPath, ns, className, methodName);
-            if (ok)
+            Log.Information("===== 注入尝试 {Attempt}/{Max} =====", attempt, maxRetries);
+
+            // 检查进程是否还活着
+            if (process.HasExited)
             {
-                Log.Information("注入流程完成（成功）。");
+                Log.Error("游戏进程已退出，终止注入");
                 LogConfig.Shutdown();
-                return 0;
+                return 5;
             }
-            else
+
+            try
             {
-                Log.Warning("注入流程完成（部分失败，请查看上方诊断）。");
-                LogConfig.Shutdown();
-                return 1;
+                using var injector = new MonoInjector();
+                injector.Open((uint)process.Id);
+                bool ok = injector.Inject(monoBase, assemblyPath, ns, className, methodName);
+                if (ok)
+                {
+                    Log.Information("注入成功！");
+                    LogConfig.Shutdown();
+                    return 0;
+                }
+
+                if (attempt < maxRetries)
+                {
+                    Log.Warning("注入未成功，等待 3 秒后重试（Mono 运行时可能仍在初始化）...");
+                    Thread.Sleep(3000);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "注入异常 (尝试 {Attempt}/{Max})", attempt, maxRetries);
+                if (attempt < maxRetries)
+                {
+                    Log.Information("等待 3 秒后重试...");
+                    Thread.Sleep(3000);
+                }
             }
         }
-        catch (Exception ex)
+
+        Log.Error("===== 注入失败（已重试 {Max} 次）=====", maxRetries);
+        Log.Error("请检查日志中的诊断信息，常见原因：");
+        Log.Error("  1. Mono root domain = 0: 游戏未完全加载，请等游戏进入主菜单后再运行注入器");
+        Log.Error("  2. assembly_open = 0: CwcdEspLibrary.dll 路径错误或 0Harmony.dll 缺失");
+        Log.Error("  3. class_from_name = 0: 命名空间或类名错误");
+        LogConfig.Shutdown();
+        return 1;
+    }
+
+    /// <summary>
+    /// 等待游戏主窗口出现 + 额外延迟，确保 Mono 运行时已初始化 root domain。
+    /// 在进程刚启动时立即注入会导致 mono_get_root_domain() 返回 NULL，进而崩溃游戏。
+    /// </summary>
+    private static void WaitForGameWindow(Process process)
+    {
+        Log.Information("等待游戏窗口加载...");
+        var sw = Stopwatch.StartNew();
+        bool windowFound = false;
+        while (sw.Elapsed.TotalSeconds < 30)
         {
-            Log.Error(ex, "注入失败");
-            LogConfig.Shutdown();
-            return 1;
+            process.Refresh();
+            if (process.MainWindowHandle != IntPtr.Zero)
+            {
+                windowFound = true;
+                break;
+            }
+            Thread.Sleep(500);
+        }
+
+        if (windowFound)
+        {
+            Log.Information("游戏窗口已出现，额外等待 3 秒确保 Mono 初始化完成...");
+            Thread.Sleep(3000);
+        }
+        else
+        {
+            Log.Warning("30秒内未检测到游戏窗口，尝试注入（可能失败）...");
         }
     }
 

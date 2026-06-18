@@ -170,7 +170,7 @@ internal sealed class MonoInjector : IDisposable
     }
 
     /// <summary>
-    /// 生成 x64 shellcode。
+    /// 生成 x64 shellcode（带 NULL 检查，任何一步返回 NULL 就干净退出，不崩溃游戏）。
     /// 数据结构布局（rbx 始终指向它）：
     ///   0x00 函数指针表(7×8) | 0x38 字符串指针(4×8) | 0x58 输出字段(5×8)
     /// </summary>
@@ -178,56 +178,75 @@ internal sealed class MonoInjector : IDisposable
     {
         return new byte[]
         {
-            0x48, 0x83, 0xEC, 0x28,             // sub rsp, 28h
-            0x48, 0x89, 0xCB,                   // mov rbx, rcx
-            // root = mono_get_root_domain()  -> [rbx+0x58]
-            0x48, 0x8B, 0x03,                   // mov rax, [rbx]
-            0xFF, 0xD0,                         // call rax
-            0x48, 0x89, 0x43, 0x58,             // mov [rbx+58h], rax
-            0x49, 0x89, 0xC4,                   // mov r12, rax
+            // prologue
+            0x48, 0x83, 0xEC, 0x28,                         // sub rsp, 28h
+            0x48, 0x89, 0xCB,                               // mov rbx, rcx
+
+            // root = mono_get_root_domain() -> [rbx+0x58]
+            0x48, 0x8B, 0x03,                               // mov rax, [rbx]
+            0xFF, 0xD0,                                     // call rax
+            0x48, 0x89, 0x43, 0x58,                         // mov [rbx+58h], rax
+            0x48, 0x85, 0xC0,                               // test rax, rax
+            0x0F, 0x84, 0x91, 0x00, 0x00, 0x00,             // jz done
+            0x49, 0x89, 0xC4,                               // mov r12, rax
+
             // mono_thread_attach(root)
-            0x4C, 0x89, 0xE1,                   // mov rcx, r12
-            0x48, 0x8B, 0x43, 0x08,             // mov rax, [rbx+8]
-            0xFF, 0xD0,                         // call rax
+            0x4C, 0x89, 0xE1,                               // mov rcx, r12
+            0x48, 0x8B, 0x43, 0x08,                         // mov rax, [rbx+8]
+            0xFF, 0xD0,                                     // call rax
+
             // asm = mono_domain_assembly_open(root, path) -> [rbx+0x60]
-            0x4C, 0x89, 0xE1,                   // mov rcx, r12
-            0x48, 0x8B, 0x53, 0x38,             // mov rdx, [rbx+38h]
-            0x48, 0x8B, 0x43, 0x10,             // mov rax, [rbx+10h]
-            0xFF, 0xD0,                         // call rax
-            0x48, 0x89, 0x43, 0x60,             // mov [rbx+60h], rax
-            0x49, 0x89, 0xC5,                   // mov r13, rax
+            0x4C, 0x89, 0xE1,                               // mov rcx, r12
+            0x48, 0x8B, 0x53, 0x38,                         // mov rdx, [rbx+38h]
+            0x48, 0x8B, 0x43, 0x10,                         // mov rax, [rbx+10h]
+            0xFF, 0xD0,                                     // call rax
+            0x48, 0x89, 0x43, 0x60,                         // mov [rbx+60h], rax
+            0x48, 0x85, 0xC0,                               // test rax, rax
+            0x0F, 0x84, 0x6C, 0x00, 0x00, 0x00,             // jz done
+            0x49, 0x89, 0xC5,                               // mov r13, rax
+
             // image = mono_assembly_get_image(asm) -> [rbx+0x68]
-            0x4C, 0x89, 0xE9,                   // mov rcx, r13
-            0x48, 0x8B, 0x43, 0x18,             // mov rax, [rbx+18h]
-            0xFF, 0xD0,                         // call rax
-            0x48, 0x89, 0x43, 0x68,             // mov [rbx+68h], rax
-            0x49, 0x89, 0xC6,                   // mov r14, rax
+            0x4C, 0x89, 0xE9,                               // mov rcx, r13
+            0x48, 0x8B, 0x43, 0x18,                         // mov rax, [rbx+18h]
+            0xFF, 0xD0,                                     // call rax
+            0x48, 0x89, 0x43, 0x68,                         // mov [rbx+68h], rax
+            0x48, 0x85, 0xC0,                               // test rax, rax
+            0x0F, 0x84, 0x53, 0x00, 0x00, 0x00,             // jz done
+            0x49, 0x89, 0xC6,                               // mov r14, rax
+
             // klass = mono_class_from_name(image, ns, class) -> [rbx+0x70]
-            0x4C, 0x89, 0xF1,                   // mov rcx, r14
-            0x48, 0x8B, 0x53, 0x40,             // mov rdx, [rbx+40h]
-            0x4D, 0x8B, 0x43, 0x48,             // mov r8,  [rbx+48h]
-            0x48, 0x8B, 0x43, 0x20,             // mov rax, [rbx+20h]
-            0xFF, 0xD0,                         // call rax
-            0x48, 0x89, 0x43, 0x70,             // mov [rbx+70h], rax
-            0x49, 0x89, 0xC7,                   // mov r15, rax
+            0x4C, 0x89, 0xF1,                               // mov rcx, r14
+            0x48, 0x8B, 0x53, 0x40,                         // mov rdx, [rbx+40h]
+            0x4D, 0x8B, 0x43, 0x48,                         // mov r8,  [rbx+48h]
+            0x48, 0x8B, 0x43, 0x20,                         // mov rax, [rbx+20h]
+            0xFF, 0xD0,                                     // call rax
+            0x48, 0x89, 0x43, 0x70,                         // mov [rbx+70h], rax
+            0x48, 0x85, 0xC0,                               // test rax, rax
+            0x0F, 0x84, 0x33, 0x00, 0x00, 0x00,             // jz done
+            0x49, 0x89, 0xC7,                               // mov r15, rax
+
             // method = mono_class_get_method_from_name(klass, method, 0) -> [rbx+0x78]
-            0x4C, 0x89, 0xF9,                   // mov rcx, r15
-            0x48, 0x8B, 0x53, 0x50,             // mov rdx, [rbx+50h]
-            0x4D, 0x31, 0xC0,                   // xor r8, r8
-            0x48, 0x8B, 0x43, 0x28,             // mov rax, [rbx+28h]
-            0xFF, 0xD0,                         // call rax
-            0x48, 0x89, 0x43, 0x78,             // mov [rbx+78h], rax
-            0x49, 0x89, 0xC4,                   // mov r12, rax
+            0x4C, 0x89, 0xF9,                               // mov rcx, r15
+            0x48, 0x8B, 0x53, 0x50,                         // mov rdx, [rbx+50h]
+            0x4D, 0x31, 0xC0,                               // xor r8, r8
+            0x48, 0x8B, 0x43, 0x28,                         // mov rax, [rbx+28h]
+            0xFF, 0xD0,                                     // call rax
+            0x48, 0x89, 0x43, 0x78,                         // mov [rbx+78h], rax
+            0x48, 0x85, 0xC0,                               // test rax, rax
+            0x0F, 0x84, 0x14, 0x00, 0x00, 0x00,             // jz done
+            0x49, 0x89, 0xC4,                               // mov r12, rax
+
             // mono_runtime_invoke(method, null, null, null)
-            0x4C, 0x89, 0xE1,                   // mov rcx, r12
-            0x48, 0x31, 0xD2,                   // xor rdx, rdx
-            0x4D, 0x31, 0xC0,                   // xor r8, r8
-            0x4D, 0x31, 0xC9,                   // xor r9, r9
-            0x48, 0x8B, 0x43, 0x30,             // mov rax, [rbx+30h]
-            0xFF, 0xD0,                         // call rax
-            // 收尾
-            0x48, 0x83, 0xC4, 0x28,             // add rsp, 28h
-            0xC3,                               // ret
+            0x4C, 0x89, 0xE1,                               // mov rcx, r12
+            0x48, 0x31, 0xD2,                               // xor rdx, rdx
+            0x4D, 0x31, 0xC0,                               // xor r8, r8
+            0x4D, 0x31, 0xC9,                               // xor r9, r9
+            0x48, 0x8B, 0x43, 0x30,                         // mov rax, [rbx+30h]
+            0xFF, 0xD0,                                     // call rax
+
+            // done:
+            0x48, 0x83, 0xC4, 0x28,                         // add rsp, 28h
+            0xC3,                                           // ret
         };
     }
 
