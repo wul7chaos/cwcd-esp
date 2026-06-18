@@ -19,9 +19,9 @@ if "%GAMEMANAGED%"=="" (
 
 pushd "%~dp0.."
 if not "%GAMEMANAGED%"=="" (
-  dotnet build CwcdEspLibrary\CwcdEspLibrary.csproj -c Release -p:GameManagedDir="%GAMEMANAGED%"
+  dotnet build CwcdEspLibrary\CwcdEspLibrary.csproj -c Release -p:Platform=AnyCPU -p:GameManagedDir="%GAMEMANAGED%"
 ) else (
-  dotnet build CwcdEspLibrary\CwcdEspLibrary.csproj -c Release
+  dotnet build CwcdEspLibrary\CwcdEspLibrary.csproj -c Release -p:Platform=AnyCPU
 )
 set "RC=%ERRORLEVEL%"
 popd

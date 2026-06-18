@@ -7,7 +7,7 @@ REM   不传参时使用 GamePaths.local.props 中的 GameManagedDir
 
 set "GAMEMANAGED=%~1"
 set "OUT=%~dp0..\deploy"
-set "LIBOUT=%~dp0..\CwcdEspLibrary\bin\x64\Release"
+set "LIBOUT=%~dp0..\CwcdEspLibrary\bin\Release"
 set "INJOUT=%~dp0..\CwcdEspInjector\bin\x64\Release"
 
 if exist "%OUT%" rmdir /s /q "%OUT%"
