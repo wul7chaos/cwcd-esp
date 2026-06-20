@@ -13,13 +13,15 @@ namespace CwcdEsp
         public static bool BoxEspEnabled = true;          // F6
         public static bool LootEspEnabled = true;         // F7
         public static bool BulletTrackingEnabled = false; // F8（默认关）
-        public static bool OverlayVisible = true;         // F9 面板可见性
+        public static bool OverlayVisible = true;         // Home 面板可见性
+        public static bool ConfigMenuVisible = false;     // Insert 配置菜单
 
         // ===== 快捷键 =====
         public static KeyCode ToggleBoxKey = KeyCode.F6;
         public static KeyCode ToggleLootKey = KeyCode.F7;
         public static KeyCode ToggleTrackingKey = KeyCode.F8;
-        public static KeyCode ToggleMenuKey = KeyCode.Home; // Home 键：面板显示/隐藏
+        public static KeyCode ToggleMenuKey = KeyCode.Home;   // Home 键：状态面板显示/隐藏
+        public static KeyCode ToggleConfigMenuKey = KeyCode.Insert; // Insert：配置菜单显示/隐藏
 
         // ===== 可调参数（方案 9.2）=====
         public static int BoxThickness = 2;            // 1~4 px
@@ -27,6 +29,11 @@ namespace CwcdEsp
         public static float TrackingDistance = 100f;   // 0~200m，最大追踪距离（xz平面距离）
         public static int MinRarity = 0;               // 0~4，物资过滤
         public static float SightCheckInterval = 0.2f; // 0.1~1s，视线物理检测降频
+
+        // ===== 物资价值过滤 =====
+        public static int MinItemValue = 0;            // 物品最低价值（购买价），低于此值不显示
+        public static bool ShowItemValue = true;       // 是否在物资标签中显示价值
+        public static bool EnableLootFilter = false;   // 是否启用价值过滤
 
         // ===== 渲染距离 =====
         public static float EnemyMaxDistance = 100f;   // 方框透视最大距离
@@ -38,6 +45,14 @@ namespace CwcdEsp
         public static readonly Color ColorEnemy = Hex(0xB3, 0x33, 0xFF);   // 紫
         public static readonly Color ColorPlayer = Hex(0x33, 0xDD, 0xFF);  // 青
         public static readonly Color ColorPartner = Hex(0x33, 0xFF, 0x55); // 绿
+
+        // ===== 敌人 AI 状态颜色（方框 + 连线同步）=====
+        public static readonly Color ColorAiIdle = Hex(0x33, 0xFF, 0x55);   // 未发现玩家：绿色（虚线）
+        public static readonly Color ColorAiCombat = Hex(0xFF, 0x33, 0x33); // 发现/攻击玩家：红色（实线）
+
+        // ===== 方框/连线行为开关 =====
+        public static bool DrawPlayerEnemyLines = true; // 绘制玩家-敌人连线
+        public static bool DashedBoxWhenIdle = true;    // 未发现状态用虚线方框
 
         // ===== 稀有度颜色（0~4）=====
         public static readonly Color[] RarityColors =

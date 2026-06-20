@@ -15,7 +15,8 @@ namespace CwcdEsp.Utils
             _started = true;
             EntryPoint.Log($"热键：F6=方框[{(EspConfig.BoxEspEnabled ? "ON" : "OFF")}] " +
                            $"F7=物资[{(EspConfig.LootEspEnabled ? "ON" : "OFF")}] " +
-                           $"F8=追踪[{(EspConfig.BulletTrackingEnabled ? "ON" : "OFF")}]");
+                           $"F8=追踪[{(EspConfig.BulletTrackingEnabled ? "ON" : "OFF")}] " +
+                           $"Home=面板 Insert=配置菜单");
         }
 
         public static void Update()
@@ -43,6 +44,11 @@ namespace CwcdEsp.Utils
                 {
                     EspConfig.OverlayVisible = !EspConfig.OverlayVisible;
                     EntryPoint.Log($"状态面板: {(EspConfig.OverlayVisible ? "ON" : "OFF")}");
+                }
+                if (Input.GetKeyDown(EspConfig.ToggleConfigMenuKey))
+                {
+                    EspConfig.ConfigMenuVisible = !EspConfig.ConfigMenuVisible;
+                    EntryPoint.Log($"配置菜单: {(EspConfig.ConfigMenuVisible ? "ON" : "OFF")}");
                 }
             }
             catch { /* Input 在某些时序下可能不可用，忽略 */ }

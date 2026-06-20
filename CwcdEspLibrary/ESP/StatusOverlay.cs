@@ -54,7 +54,7 @@ namespace CwcdEsp.Esp
                             $"{(EspConfig.BulletTrackingEnabled ? "[追踪]" : " 追踪 ")}";
             DrawText(x + 8, cy, status, OkColor, false); cy += lineH;
             DrawText(x + 8, cy, $"敌人: {enemyCount}  物资: {lootCount}", DimColor, false); cy += lineH;
-            DrawText(x + 8, cy, "Home 隐藏面板", DimColor, false); cy += lineH;
+            DrawText(x + 8, cy, "Home 面板 · Insert 配置", DimColor, false); cy += lineH;
         }
 
         private static void DrawBgRect(float x, float y, float w, float h)

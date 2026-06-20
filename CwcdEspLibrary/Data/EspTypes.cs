@@ -3,6 +3,17 @@ using UnityEngine;
 
 namespace CwcdEsp.Data
 {
+    /// <summary>敌人 AI 状态（用于方框颜色/线型区分）。</summary>
+    public enum AiState
+    {
+        /// <summary>未知（未采集到 AI 数据，按未发现处理）。</summary>
+        Unknown = 0,
+        /// <summary>未发现玩家（focusTarget == null）。</summary>
+        Idle = 1,
+        /// <summary>发现/锁定/攻击玩家（focusTarget != null）。</summary>
+        Combat = 2,
+    }
+
     /// <summary>敌人缓存条目（值语义，绘制时只读）。</summary>
     public struct EnemyData
     {
@@ -18,6 +29,7 @@ namespace CwcdEsp.Data
         public float Hp;             // 当前血量（无可读时为 -1）
         public float MaxHp;          // 最大血量
         public string Name;          // 显示名
+        public AiState AiState;      // AI 状态（Idle/Combat）
 
         public readonly bool HasHp => MaxHp > 0f && Hp >= 0f;
         public readonly float HpRatio => MaxHp > 0f ? Mathf.Clamp01(Hp / MaxHp) : 0f;
@@ -28,9 +40,10 @@ namespace CwcdEsp.Data
     public struct LootItem
     {
         public string Name;
-        public int Rarity;   // 0~4
+        public int Rarity;     // 0~4
         public string Type;
         public int Count;
+        public int BuyPrice;   // 购买价（含子物品叠加），0 表示无价格数据
     }
 
     /// <summary>一个容器/掉落物的聚合缓存。</summary>

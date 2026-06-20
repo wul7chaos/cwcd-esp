@@ -79,6 +79,11 @@ namespace CwcdEsp
                     ref success, ref fail,
                     postfixType: typeof(Patch_Spread));
 
+                // AI 状态采集（Patch LogicControllerActorAI.Update → 捕获 focusTarget）
+                RegisterPatch("MorbidOptimism.Server.LogicControllerActorAI", "Update",
+                    ref success, ref fail,
+                    postfixType: typeof(Patch_AiUpdate));
+
                 // Bullet tracking
                 FileLogger.Info("注册 BulletTracker...");
                 try

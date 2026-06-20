@@ -99,6 +99,7 @@ namespace CwcdEsp.Data
                     Name = string.IsNullOrEmpty(actor.label) ? actor.staticDataKey : actor.label,
                     Hp = -1f,
                     MaxHp = 0f,
+                    AiState = AiStateCache.Get(actor.id),
                 };
 
                 var life = actor.lifeData;

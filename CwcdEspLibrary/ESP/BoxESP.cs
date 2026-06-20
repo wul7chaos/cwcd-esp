@@ -7,9 +7,12 @@ namespace CwcdEsp.Esp
     /// <summary>
     /// 方框透视（修复版：改用 GUI.DrawTexture 替代 GL 绘制）。
     ///
-    /// 之前用 GL.LoadPixelMatrix 绘制方框，与 OnGUI 的 GUI 坐标系不匹配导致偏移。
-    /// 现在全部用 GUI.DrawTexture，与 GUI.Label 使用相同的坐标系（原点左上，y 向下）。
-    /// 用 Collider.bounds 的 8 角点投影到屏幕取 min/max 画 2D 包围框。
+    /// v4 增强：
+    /// 1) 按 AI 状态变色 + 线型：
+    ///    - Idle（未发现玩家）→ 虚线绿色方框
+    ///    - Combat（发现/攻击玩家）→ 实线红色方框
+    ///    - Unknown（无 AI 数据）→ 按 Idle 处理
+    /// 2) 玩家-敌人连线：从屏幕中心（准星）到敌人方框中心画线段，颜色与方框同步。
     /// </summary>
     public static class BoxESP
     {
@@ -21,13 +24,16 @@ namespace CwcdEsp.Esp
             Camera cam = ScreenTools.Cam;
             if (cam == null) return;
 
+            // 连线起点：屏幕中心（俯视角准星位置）
+            Vector2 lineOrigin = new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
+
             for (int i = 0; i < enemies.Count; i++)
             {
-                DrawEnemyBox(cam, enemies[i]);
+                DrawEnemyBox(cam, enemies[i], lineOrigin);
             }
         }
 
-        private static void DrawEnemyBox(Camera cam, EnemyData e)
+        private static void DrawEnemyBox(Camera cam, EnemyData e, Vector2 lineOrigin)
         {
             Vector3 center = e.BoundsCenter;
             Vector3 size = e.BoundsSize;
@@ -68,11 +74,37 @@ namespace CwcdEsp.Esp
 
             if (!anyVisible) return;
 
-            Color c = EspConfig.ColorForFraction(e.FractionValue);
-
-            // 方框（GUI 坐标：左上原点，y 向下）
+            // === AI 状态决定颜色与线型 ===
+            // Idle / Unknown → 虚线绿色；Combat → 实线红色
+            bool isCombat = e.AiState == AiState.Combat;
+            Color boxColor = isCombat ? EspConfig.ColorAiCombat : EspConfig.ColorAiIdle;
             float thickness = EspConfig.BoxThickness;
-            GuiDrawHelper.DrawBox(minX, minY, maxX, maxY, c, thickness);
+
+            if (isCombat || !EspConfig.DashedBoxWhenIdle)
+            {
+                // 实线方框
+                GuiDrawHelper.DrawBox(minX, minY, maxX, maxY, boxColor, thickness);
+            }
+            else
+            {
+                // 虚线方框（未发现玩家）
+                GuiDrawHelper.DrawDashedBox(minX, minY, maxX, maxY, boxColor, thickness);
+            }
+
+            // === 玩家-敌人连线（颜色与方框同步）===
+            if (EspConfig.DrawPlayerEnemyLines)
+            {
+                float boxCenterX = (minX + maxX) * 0.5f;
+                float boxCenterY = (minY + maxY) * 0.5f;
+                if (isCombat)
+                {
+                    GuiDrawHelper.DrawLine(lineOrigin.x, lineOrigin.y, boxCenterX, boxCenterY, boxColor, 1.5f);
+                }
+                else
+                {
+                    GuiDrawHelper.DrawDashedLine(lineOrigin.x, lineOrigin.y, boxCenterX, boxCenterY, boxColor, 1.5f);
+                }
+            }
 
             // 血条（方框上方）
             if (e.HasHp)

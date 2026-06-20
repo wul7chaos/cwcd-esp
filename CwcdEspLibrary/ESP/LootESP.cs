@@ -55,6 +55,12 @@ namespace CwcdEsp.Esp
                 _sb.Append(item.Name);
                 if (item.Count > 1) _sb.Append(" x").Append(item.Count);
 
+                // 显示价值（购买价）
+                if (EspConfig.ShowItemValue && item.BuyPrice > 0)
+                {
+                    _sb.Append(" ¥").Append(item.BuyPrice);
+                }
+
                 Color c = item.Rarity >= 0 && item.Rarity < EspConfig.RarityColors.Length
                     ? EspConfig.RarityColors[item.Rarity]
                     : Color.white;

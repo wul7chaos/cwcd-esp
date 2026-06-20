@@ -144,7 +144,7 @@ namespace CwcdEsp.Data
             }
         }
 
-        /// <summary>从 Item 提取名称/稀有度/数量。</summary>
+        /// <summary>从 Item 提取名称/稀有度/数量/价值。</summary>
         private void AddItem(Item item, LootEntry entry)
         {
             if (item == null || item.data == null) return;
@@ -153,6 +153,7 @@ namespace CwcdEsp.Data
                 string name = item.data.staticDataKey ?? "???";
                 int rarity = 0;
                 int count = 1;
+                int buyPrice = 0;
 
                 // 尝试获取 staticData
                 var sd = item.data.staticData;
@@ -165,11 +166,24 @@ namespace CwcdEsp.Data
                 // 堆叠数量
                 count = item.data.num > 1 ? item.data.num : 1;
 
+                // 购买价（含子物品叠加，ItemData_Equip 会重写此方法累加 subItems 价值）
+                // 签名：ItemDataBase.GetBuyPrice(int num, int currency = 1)
+                try
+                {
+                    buyPrice = item.data.GetBuyPrice(item.data.num);
+                }
+                catch
+                {
+                    // 某些特殊物品可能无法计算价格，保持 0
+                    buyPrice = 0;
+                }
+
                 entry.Items.Add(new LootItem
                 {
                     Name = name,
                     Rarity = rarity,
                     Count = count,
+                    BuyPrice = buyPrice,
                 });
             }
             catch
@@ -179,17 +193,22 @@ namespace CwcdEsp.Data
                     Name = item.data.staticDataKey ?? "???",
                     Rarity = 0,
                     Count = 1,
+                    BuyPrice = 0,
                 });
             }
         }
 
-        /// <summary>主线程 Update 末尾：重建绘制快照（含距离/稀有度剔除）。</summary>
+        /// <summary>主线程 Update 末尾：重建绘制快照（含距离/稀有度/价值剔除）。</summary>
         public void RebuildSnapshot()
         {
             _snapshot.Clear();
             Camera cam = ScreenTools.Cam;
             Vector3 camPos = cam != null ? cam.transform.position : Vector3.zero;
             float maxDistSq = EspConfig.LootMaxDistance * EspConfig.LootMaxDistance;
+
+            bool valueFilterOn = EspConfig.EnableLootFilter;
+            int minValue = EspConfig.MinItemValue;
+            int minRarity = EspConfig.MinRarity;
 
             foreach (var kv in _loot)
             {
@@ -202,17 +221,17 @@ namespace CwcdEsp.Data
                     float distSqXz = dx * dx + dz * dz;
                     if (distSqXz > maxDistSq) continue;
                 }
-                // 稀有度剔除
-                bool hasValidRarity = false;
+                // 稀有度 + 价值过滤：容器内至少有一件物品同时满足稀有度和价值条件才显示
+                bool hasValidItem = false;
                 for (int i = 0; i < entry.Items.Count; i++)
                 {
-                    if (entry.Items[i].Rarity >= EspConfig.MinRarity)
-                    {
-                        hasValidRarity = true;
-                        break;
-                    }
+                    LootItem li = entry.Items[i];
+                    if (li.Rarity < minRarity) continue;
+                    if (valueFilterOn && li.BuyPrice < minValue) continue;
+                    hasValidItem = true;
+                    break;
                 }
-                if (!hasValidRarity) continue;
+                if (!hasValidItem) continue;
 
                 _snapshot.Add(entry);
             }
