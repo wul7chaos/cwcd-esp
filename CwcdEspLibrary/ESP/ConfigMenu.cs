@@ -16,6 +16,7 @@ namespace CwcdEsp.Esp
         private static bool _inited;
         private static string _saveMsg = "";
         private static float _saveMsgTime;
+        private static Vector2 _scrollPos; // 配置面板滚动位置
 
         public static void Draw()
         {
@@ -34,7 +35,8 @@ namespace CwcdEsp.Esp
 
         private static void WindowFunc(int id)
         {
-            GUILayout.BeginVertical();
+            // 内部整体可滚动，解决小分辨率下内容超出窗口底部的问题
+            _scrollPos = GUILayout.BeginScrollView(_scrollPos);
 
             // ===== 物资透视 =====
             SectionLabel("物资透视");
@@ -108,7 +110,7 @@ namespace CwcdEsp.Esp
                 GUILayout.Label(_saveMsg, Colors.GetStyle(new Color(0.3f, 1f, 0.5f, 1f)));
             }
 
-            GUILayout.EndVertical();
+            GUILayout.EndScrollView();
 
             // 仅标题栏可拖拽（避免与控件点击/滑动冲突）
             GUI.DragWindow(new Rect(0, 0, _windowRect.width, 20));

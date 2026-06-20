@@ -22,6 +22,7 @@ namespace CwcdEsp.Utils
                     fontSize = 12,
                     fontStyle = FontStyle.Bold,
                     alignment = TextAnchor.MiddleCenter,
+                    wordWrap = false,             // 强制单行，防止物资标签自动换行
                 };
                 // 清除 padding，让 CalcSize 返回的尺寸更接近实际渲染高度，
                 // 避免行高不足导致底部被裁剪（中文字体行高 > fontSize）

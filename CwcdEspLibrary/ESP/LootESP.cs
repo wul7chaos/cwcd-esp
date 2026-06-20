@@ -18,6 +18,8 @@ namespace CwcdEsp.Esp
         private const float LineHeight = 22f;
         private const float LineGap = 2f;
         private const float RectHeight = 20f; // Rect 高度（略小于行高，给行间距留空间）
+        private const float MinLabelWidth = 160f; // 最小显示宽度，防止短文本被 wordWrap 截断
+        private const float MaxLabelWidth = 600f; // 最大显示宽度上限
 
         /// <summary>绘制所有物资容器的物品列表。</summary>
         public static void DrawLabels()
@@ -74,8 +76,9 @@ namespace CwcdEsp.Esp
                 string text = _sb.ToString();
                 GUIStyle style = Colors.GetStyle(c);
                 Vector2 size = style.CalcSize(new GUIContent(text));
-                // 用固定 Rect 高度，避免 CalcSize.y 偏小导致行间重叠
-                Rect rect = new Rect(centerX - size.x * 0.5f, guiY, size.x, RectHeight);
+                // 强制单行：关闭 wordWrap，并给宽度加最小/最大限制，确保长文本也有足够空间
+                float width = Mathf.Clamp(size.x, MinLabelWidth, MaxLabelWidth);
+                Rect rect = new Rect(centerX - width * 0.5f, guiY, width, RectHeight);
                 Colors.LabelWithShadow(rect, text, c);
                 guiY -= LineHeight + LineGap;
             }
