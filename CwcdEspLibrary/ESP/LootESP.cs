@@ -46,8 +46,8 @@ namespace CwcdEsp.Esp
                 guiY -= size.y + 1f; // 向上排列（y 减小）
             }
 
-            // 逐物品行（稀有度着色），从下往上排列
-            var items = entry.Items;
+            // 逐物品行（稀有度着色），从下往上排列 —— 使用过滤后的物品列表
+            var items = entry.FilteredItems;
             for (int i = 0; i < items.Count; i++)
             {
                 LootItem item = items[i];

@@ -199,6 +199,11 @@ namespace CwcdEsp.Data
         }
 
         /// <summary>主线程 Update 末尾：重建绘制快照（含距离/稀有度/价值剔除）。</summary>
+        /// <remarks>
+        /// 过滤粒度=物品级：每个物品独立按稀有度+价值过滤，只把通过过滤的物品放入 FilteredItems。
+        /// 容器内全部物品都不通过 → 该容器不加入 snapshot。
+        /// 这样阈值变化时能看到物品逐个消失/出现，而不是容器整体跳变。
+        /// </remarks>
         public void RebuildSnapshot()
         {
             _snapshot.Clear();
@@ -221,17 +226,19 @@ namespace CwcdEsp.Data
                     float distSqXz = dx * dx + dz * dz;
                     if (distSqXz > maxDistSq) continue;
                 }
-                // 稀有度 + 价值过滤：容器内至少有一件物品同时满足稀有度和价值条件才显示
-                bool hasValidItem = false;
+
+                // 物品级过滤：逐物品判断是否满足稀有度+价值条件
+                entry.FilteredItems.Clear();
                 for (int i = 0; i < entry.Items.Count; i++)
                 {
                     LootItem li = entry.Items[i];
                     if (li.Rarity < minRarity) continue;
                     if (valueFilterOn && li.BuyPrice < minValue) continue;
-                    hasValidItem = true;
-                    break;
+                    entry.FilteredItems.Add(li);
                 }
-                if (!hasValidItem) continue;
+
+                // 容器内至少有一件物品通过过滤才显示
+                if (entry.FilteredItems.Count == 0) continue;
 
                 _snapshot.Add(entry);
             }

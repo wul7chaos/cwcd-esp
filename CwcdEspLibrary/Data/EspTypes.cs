@@ -53,6 +53,8 @@ namespace CwcdEsp.Data
         public Vector3 Position;
         public string ContainerName;
         public readonly List<LootItem> Items = new List<LootItem>(8);
+        /// <summary>过滤后的物品列表（由 RebuildSnapshot 填充，供 LootESP 绘制使用）。</summary>
+        public readonly List<LootItem> FilteredItems = new List<LootItem>(8);
     }
 
     /// <summary>追踪目标缓存（供子弹修正 O(1) 读取）。</summary>
