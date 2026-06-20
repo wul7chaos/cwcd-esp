@@ -1,4 +1,3 @@
-using Serilog;
 using System;
 using System.Collections.Generic;
 using System.Text;
@@ -56,18 +55,18 @@ internal sealed class MonoInjector : IDisposable
             "mono_class_get_method_from_name",
             "mono_runtime_invoke",
         };
-        Log.Information("解析 mono 导出表...");
+        Log.Info("解析 mono 导出表...");
         Dictionary<string, IntPtr> funcs = RemotePe.ResolveExports(_hProcess, monoBase, exports);
 
         foreach (var kv in funcs)
         {
             if (kv.Value == IntPtr.Zero)
                 throw new Exception($"未能解析导出函数: {kv.Key}");
-            Log.Information("  {Name} = 0x{Addr:X}", kv.Key, kv.Value.ToInt64());
+            Log.Info($"  {kv.Key} = 0x{kv.Value.ToInt64():X}");
         }
 
         // 2. 分配字符串（ASCII, 以 \0 结尾）
-        Log.Information("写入字符串: assemblyPath={Path}", assemblyPath);
+        Log.Info($"写入字符串: assemblyPath={assemblyPath}");
         IntPtr pAssembly = WriteString(assemblyPath);
         IntPtr pNamespace = WriteString(ns);
         IntPtr pClass = WriteString(className);
@@ -89,33 +88,33 @@ internal sealed class MonoInjector : IDisposable
         // 88..127: 输出字段（root/asm/image/klass/method），由 shellcode 回写
 
         IntPtr pData = AllocAndWrite(data, Win32.PAGE_READWRITE);
-        Log.Information("数据结构 @ 0x{Addr:X}", pData.ToInt64());
+        Log.Info($"数据结构 @ 0x{pData.ToInt64():X}");
 
         // 4. shellcode
         byte[] shellcode = BuildShellcode();
         IntPtr pCode = AllocAndWrite(shellcode, Win32.PAGE_EXECUTE_READWRITE);
-        Log.Information("shellcode @ 0x{Addr:X} ({Len} bytes)", pCode.ToInt64(), shellcode.Length);
+        Log.Info($"shellcode @ 0x{pCode.ToInt64():X} ({shellcode.Length} bytes)");
 
         // 5. CreateRemoteThread(shellcode, param=pData)
         IntPtr hThread = Win32.CreateRemoteThread(_hProcess, IntPtr.Zero, 0, pCode, pData, 0, out uint tid);
         if (hThread == IntPtr.Zero)
             throw new Exception($"CreateRemoteThread 失败，错误码={MarshalSystem.GetLastError()}");
-        Log.Information("远程线程已创建 tid={Tid}，等待执行完成...", tid);
+        Log.Info($"远程线程已创建 tid={tid}，等待执行完成...");
 
         Win32.WaitForSingleObject(hThread, Win32.INFINITE);
         Win32.GetExitCodeThread(hThread, out uint exitCode);
         Win32.CloseHandle(hThread);
-        Log.Information("远程线程退出，code={Code} (0x{Hex:X})", exitCode, exitCode);
+        Log.Info($"远程线程退出，code={exitCode} (0x{exitCode:X})");
 
         // 0xE06D7363 = C++ EH 异常（Mono 内部抛出）
         if (exitCode == 0xE06D7363)
         {
-            Log.Warning("退出码 0xE06D7363 = C++ 异常，Mono 运行时内部出错（通常是依赖解析失败或类型加载失败）");
+            Log.Warn("退出码 0xE06D7363 = C++ 异常，Mono 运行时内部出错（通常是依赖解析失败或类型加载失败）");
         }
 
         // 6. 读取全部 5 个中间值，精确定位失败步骤
         byte[] result = new byte[128];
-        Win32.ReadProcessMemory(_hProcess, pData, result, (nuint)result.Length, out _);
+        Win32.ReadProcessMemory(_hProcess, pData, result, (uint)result.Length, out _);
 
         long rootPtr   = BitConverter.ToInt64(result, 0x58);
         long asmPtr    = BitConverter.ToInt64(result, 0x60);
@@ -123,12 +122,12 @@ internal sealed class MonoInjector : IDisposable
         long klassPtr  = BitConverter.ToInt64(result, 0x70);
         long methodPtr = BitConverter.ToInt64(result, 0x78);
 
-        Log.Information("===== 注入诊断 =====");
-        Log.Information("  mono_get_root_domain()          = 0x{Val:X}  {Status}", rootPtr, rootPtr != 0 ? "OK" : "FAIL");
-        Log.Information("  mono_domain_assembly_open()     = 0x{Val:X}  {Status}", asmPtr, asmPtr != 0 ? "OK" : "FAIL");
-        Log.Information("  mono_assembly_get_image()       = 0x{Val:X}  {Status}", imagePtr, imagePtr != 0 ? "OK" : "FAIL");
-        Log.Information("  mono_class_from_name()          = 0x{Val:X}  {Status}", klassPtr, klassPtr != 0 ? "OK" : "FAIL");
-        Log.Information("  mono_class_get_method_from_name() = 0x{Val:X}  {Status}", methodPtr, methodPtr != 0 ? "OK" : "FAIL");
+        Log.Info("===== 注入诊断 =====");
+        Log.Info($"  mono_get_root_domain()          = 0x{rootPtr:X}  {(rootPtr != 0 ? "OK" : "FAIL")}");
+        Log.Info($"  mono_domain_assembly_open()     = 0x{asmPtr:X}  {(asmPtr != 0 ? "OK" : "FAIL")}");
+        Log.Info($"  mono_assembly_get_image()       = 0x{imagePtr:X}  {(imagePtr != 0 ? "OK" : "FAIL")}");
+        Log.Info($"  mono_class_from_name()          = 0x{klassPtr:X}  {(klassPtr != 0 ? "OK" : "FAIL")}");
+        Log.Info($"  mono_class_get_method_from_name() = 0x{methodPtr:X}  {(methodPtr != 0 ? "OK" : "FAIL")}");
 
         // 逐步诊断
         if (rootPtr == 0)
@@ -137,23 +136,23 @@ internal sealed class MonoInjector : IDisposable
         {
             Log.Error("FAIL: mono_domain_assembly_open 返回 NULL — 无法加载程序集");
             Log.Error("  可能原因: 文件路径错误 / 文件不存在 / 程序集格式损坏 / 依赖 DLL(0Harmony) 缺失");
-            Log.Error("  程序集路径: {Path}", assemblyPath);
+            Log.Error($"  程序集路径: {assemblyPath}");
         }
         else if (imagePtr == 0)
             Log.Error("FAIL: mono_assembly_get_image 返回 NULL — 程序集已加载但无法获取 image");
         else if (klassPtr == 0)
         {
             Log.Error("FAIL: mono_class_from_name 返回 NULL — 类未找到");
-            Log.Error("  命名空间: {Ns}, 类名: {Class}", ns, className);
+            Log.Error($"  命名空间: {ns}, 类名: {className}");
         }
         else if (methodPtr == 0)
         {
             Log.Error("FAIL: mono_class_get_method_from_name 返回 NULL — 方法未找到");
-            Log.Error("  类: {Ns}.{Class}, 方法名: {Method}", ns, className, methodName);
+            Log.Error($"  类: {ns}.{className}, 方法名: {methodName}");
         }
         else
         {
-            Log.Information("OK: 全部步骤通过，mono_runtime_invoke 已调用 method=0x{Val:X}", methodPtr);
+            Log.Info($"OK: 全部步骤通过，mono_runtime_invoke 已调用 method=0x{methodPtr:X}");
         }
 
         bool success = methodPtr != 0;
@@ -181,7 +180,6 @@ internal sealed class MonoInjector : IDisposable
             // prologue
             0x48, 0x83, 0xEC, 0x28,                         // sub rsp, 28h
             0x48, 0x89, 0xCB,                               // mov rbx, rcx
-
             // root = mono_get_root_domain() -> [rbx+0x58]
             0x48, 0x8B, 0x03,                               // mov rax, [rbx]
             0xFF, 0xD0,                                     // call rax
@@ -189,12 +187,10 @@ internal sealed class MonoInjector : IDisposable
             0x48, 0x85, 0xC0,                               // test rax, rax
             0x0F, 0x84, 0x91, 0x00, 0x00, 0x00,             // jz done
             0x49, 0x89, 0xC4,                               // mov r12, rax
-
             // mono_thread_attach(root)
             0x4C, 0x89, 0xE1,                               // mov rcx, r12
             0x48, 0x8B, 0x43, 0x08,                         // mov rax, [rbx+8]
             0xFF, 0xD0,                                     // call rax
-
             // asm = mono_domain_assembly_open(root, path) -> [rbx+0x60]
             0x4C, 0x89, 0xE1,                               // mov rcx, r12
             0x48, 0x8B, 0x53, 0x38,                         // mov rdx, [rbx+38h]
@@ -204,7 +200,6 @@ internal sealed class MonoInjector : IDisposable
             0x48, 0x85, 0xC0,                               // test rax, rax
             0x0F, 0x84, 0x6C, 0x00, 0x00, 0x00,             // jz done
             0x49, 0x89, 0xC5,                               // mov r13, rax
-
             // image = mono_assembly_get_image(asm) -> [rbx+0x68]
             0x4C, 0x89, 0xE9,                               // mov rcx, r13
             0x48, 0x8B, 0x43, 0x18,                         // mov rax, [rbx+18h]
@@ -213,18 +208,16 @@ internal sealed class MonoInjector : IDisposable
             0x48, 0x85, 0xC0,                               // test rax, rax
             0x0F, 0x84, 0x53, 0x00, 0x00, 0x00,             // jz done
             0x49, 0x89, 0xC6,                               // mov r14, rax
-
             // klass = mono_class_from_name(image, ns, class) -> [rbx+0x70]
             0x4C, 0x89, 0xF1,                               // mov rcx, r14
             0x48, 0x8B, 0x53, 0x40,                         // mov rdx, [rbx+40h]
-            0x4C, 0x8B, 0x43, 0x48,                         // mov r8,  [rbx+48h]  (REX: W=1,R=1,B=0; 0x4D 的 B=1 会把 rbx 变成 r11)
+            0x4C, 0x8B, 0x43, 0x48,                         // mov r8, [rbx+48h]  (REX: W=1,R=1,B=0; 0x4D 的 B=1 会把 rbx 变成 r11)
             0x48, 0x8B, 0x43, 0x20,                         // mov rax, [rbx+20h]
             0xFF, 0xD0,                                     // call rax
             0x48, 0x89, 0x43, 0x70,                         // mov [rbx+70h], rax
             0x48, 0x85, 0xC0,                               // test rax, rax
             0x0F, 0x84, 0x33, 0x00, 0x00, 0x00,             // jz done
             0x49, 0x89, 0xC7,                               // mov r15, rax
-
             // method = mono_class_get_method_from_name(klass, method, 0) -> [rbx+0x78]
             0x4C, 0x89, 0xF9,                               // mov rcx, r15
             0x48, 0x8B, 0x53, 0x50,                         // mov rdx, [rbx+50h]
@@ -235,7 +228,6 @@ internal sealed class MonoInjector : IDisposable
             0x48, 0x85, 0xC0,                               // test rax, rax
             0x0F, 0x84, 0x14, 0x00, 0x00, 0x00,             // jz done
             0x49, 0x89, 0xC4,                               // mov r12, rax
-
             // mono_runtime_invoke(method, null, null, null)
             0x4C, 0x89, 0xE1,                               // mov rcx, r12
             0x48, 0x31, 0xD2,                               // xor rdx, rdx
@@ -243,7 +235,6 @@ internal sealed class MonoInjector : IDisposable
             0x4D, 0x31, 0xC9,                               // xor r9, r9
             0x48, 0x8B, 0x43, 0x30,                         // mov rax, [rbx+30h]
             0xFF, 0xD0,                                     // call rax
-
             // done:
             0x48, 0x83, 0xC4, 0x28,                         // add rsp, 28h
             0xC3,                                           // ret
@@ -260,10 +251,10 @@ internal sealed class MonoInjector : IDisposable
 
     private IntPtr AllocAndWrite(byte[] data, uint protect)
     {
-        IntPtr addr = Win32.VirtualAllocEx(_hProcess, IntPtr.Zero, (nuint)data.Length, Win32.MEM_COMMIT | Win32.MEM_RESERVE, protect);
+        IntPtr addr = Win32.VirtualAllocEx(_hProcess, IntPtr.Zero, (uint)data.Length, Win32.MEM_COMMIT | Win32.MEM_RESERVE, protect);
         if (addr == IntPtr.Zero)
             throw new Exception($"VirtualAllocEx 失败，错误码={MarshalSystem.GetLastError()}");
-        if (!Win32.WriteProcessMemory(_hProcess, addr, data, (nuint)data.Length, out _))
+        if (!Win32.WriteProcessMemory(_hProcess, addr, data, (uint)data.Length, out _))
             throw new Exception("WriteProcessMemory 失败");
         return addr;
     }

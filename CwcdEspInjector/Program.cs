@@ -1,4 +1,3 @@
-using Serilog;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -23,7 +22,7 @@ internal static class Program
 
     private static int Main(string[] args)
     {
-        LogConfig.Init();
+        Log.Init();
 
         string processName = Arg(args, 0, DefaultProcessName);
         string assemblyPath = Arg(args, 1, ResolveDefaultAssemblyPath());
@@ -31,15 +30,15 @@ internal static class Program
         string className = Arg(args, 3, DefaultClass);
         string methodName = Arg(args, 4, DefaultMethod);
 
-        Log.Information("CWCD-ESP Injector v3 启动");
-        Log.Information("  进程名   : {ProcessName}", processName);
-        Log.Information("  程序集   : {AssemblyPath}", assemblyPath);
-        Log.Information("  入口     : {Namespace}.{Class}.{Method}()", ns, className, methodName);
+        Log.Info("CWCD-ESP Injector v3 启动");
+        Log.Info($"  进程名   : {processName}");
+        Log.Info($"  程序集   : {assemblyPath}");
+        Log.Info($"  入口     : {ns}.{className}.{methodName}()");
 
         if (!File.Exists(assemblyPath))
         {
-            Log.Error("找不到程序集文件: {AssemblyPath}", assemblyPath);
-            LogConfig.Shutdown();
+            Log.Error($"找不到程序集文件: {assemblyPath}");
+            Log.Shutdown();
             return 2;
         }
 
@@ -47,11 +46,11 @@ internal static class Program
         Process? process = WaitForProcess(processName, timeoutSeconds: 60);
         if (process == null)
         {
-            Log.Error("未找到进程 {ProcessName}", processName);
-            LogConfig.Shutdown();
+            Log.Error($"未找到进程 {processName}");
+            Log.Shutdown();
             return 3;
         }
-        Log.Information("已定位进程: {ProcessName} (pid={Pid})", process.ProcessName, process.Id);
+        Log.Info($"已定位进程: {process.ProcessName} (pid={process.Id})");
 
         // 1.5 等待游戏窗口加载（确保 Mono 运行时已初始化 root domain）
         WaitForGameWindow(process);
@@ -61,10 +60,10 @@ internal static class Program
         {
             Log.Error("未在进程中找到 mono 运行时模块（mono-2.0-bdwgc.dll / mono-2.0-sgen.dll）。");
             Log.Error("可能原因：游戏使用 IL2CPP 后端（不兼容本方案），或权限不足。");
-            LogConfig.Shutdown();
+            Log.Shutdown();
             return 4;
         }
-        Log.Information("mono 模块 @ 0x{MonoBase:X} (size={MonoSize})", monoBase.ToInt64(), monoSize);
+        Log.Info($"mono 模块 @ 0x{monoBase:X} (size={monoSize})");
 
         // 3. 注入前：把依赖 DLL（0Harmony.dll）拷贝到游戏 Managed 目录
         EnsureDependenciesInManagedDir(process, assemblyPath);
@@ -73,13 +72,13 @@ internal static class Program
         int maxRetries = 5;
         for (int attempt = 1; attempt <= maxRetries; attempt++)
         {
-            Log.Information("===== 注入尝试 {Attempt}/{Max} =====", attempt, maxRetries);
+            Log.Info($"===== 注入尝试 {attempt}/{maxRetries} =====");
 
             // 检查进程是否还活着
             if (process.HasExited)
             {
                 Log.Error("游戏进程已退出，终止注入");
-                LogConfig.Shutdown();
+                Log.Shutdown();
                 return 5;
             }
 
@@ -90,34 +89,34 @@ internal static class Program
                 bool ok = injector.Inject(monoBase, assemblyPath, ns, className, methodName);
                 if (ok)
                 {
-                    Log.Information("注入成功！");
-                    LogConfig.Shutdown();
+                    Log.Info("注入成功！");
+                    Log.Shutdown();
                     return 0;
                 }
 
                 if (attempt < maxRetries)
                 {
-                    Log.Warning("注入未成功，等待 3 秒后重试（Mono 运行时可能仍在初始化）...");
+                    Log.Warn("注入未成功，等待 3 秒后重试（Mono 运行时可能仍在初始化）...");
                     Thread.Sleep(3000);
                 }
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "注入异常 (尝试 {Attempt}/{Max})", attempt, maxRetries);
+                Log.Error($"注入异常 (尝试 {attempt}/{maxRetries})", ex);
                 if (attempt < maxRetries)
                 {
-                    Log.Information("等待 3 秒后重试...");
+                    Log.Info("等待 3 秒后重试...");
                     Thread.Sleep(3000);
                 }
             }
         }
 
-        Log.Error("===== 注入失败（已重试 {Max} 次）=====", maxRetries);
+        Log.Error($"===== 注入失败（已重试 {maxRetries} 次）=====");
         Log.Error("请检查日志中的诊断信息，常见原因：");
         Log.Error("  1. Mono root domain = 0: 游戏未完全加载，请等游戏进入主菜单后再运行注入器");
         Log.Error("  2. assembly_open = 0: CwcdEspLibrary.dll 路径错误或 0Harmony.dll 缺失");
         Log.Error("  3. class_from_name = 0: 命名空间或类名错误");
-        LogConfig.Shutdown();
+        Log.Shutdown();
         return 1;
     }
 
@@ -127,7 +126,7 @@ internal static class Program
     /// </summary>
     private static void WaitForGameWindow(Process process)
     {
-        Log.Information("等待游戏窗口加载...");
+        Log.Info("等待游戏窗口加载...");
         var sw = Stopwatch.StartNew();
         bool windowFound = false;
         while (sw.Elapsed.TotalSeconds < 30)
@@ -143,12 +142,12 @@ internal static class Program
 
         if (windowFound)
         {
-            Log.Information("游戏窗口已出现，额外等待 3 秒确保 Mono 初始化完成...");
+            Log.Info("游戏窗口已出现，额外等待 3 秒确保 Mono 初始化完成...");
             Thread.Sleep(3000);
         }
         else
         {
-            Log.Warning("30秒内未检测到游戏窗口，尝试注入（可能失败）...");
+            Log.Warn("30秒内未检测到游戏窗口，尝试注入（可能失败）...");
         }
     }
 
@@ -164,7 +163,7 @@ internal static class Program
             string gameExeDir = Path.GetDirectoryName(process.MainModule?.FileName) ?? "";
             if (string.IsNullOrEmpty(gameExeDir))
             {
-                Log.Warning("无法获取游戏可执行文件路径，跳过依赖拷贝");
+                Log.Warn("无法获取游戏可执行文件路径，跳过依赖拷贝");
                 return;
             }
 
@@ -173,7 +172,7 @@ internal static class Program
 
             if (!Directory.Exists(managedDir))
             {
-                Log.Warning("游戏 Managed 目录不存在: {ManagedDir}，跳过依赖拷贝", managedDir);
+                Log.Warn($"游戏 Managed 目录不存在: {managedDir}，跳过依赖拷贝");
                 return;
             }
 
@@ -186,7 +185,7 @@ internal static class Program
                 string dst = Path.Combine(managedDir, dep);
                 if (!File.Exists(src))
                 {
-                    Log.Warning("依赖 DLL 不存在于注入器目录: {Src}", src);
+                    Log.Warn($"依赖 DLL 不存在于注入器目录: {src}");
                     continue;
                 }
 
@@ -206,17 +205,17 @@ internal static class Program
                 if (needsCopy)
                 {
                     File.Copy(src, dst, overwrite: true);
-                    Log.Information("已拷贝 {Dep} → {Dst}", dep, dst);
+                    Log.Info($"已拷贝 {dep} → {dst}");
                 }
                 else
                 {
-                    Log.Debug("{Dep} 已存在于 Managed 目录，跳过", dep);
+                    Log.Debug($"{dep} 已存在于 Managed 目录，跳过");
                 }
             }
         }
         catch (Exception ex)
         {
-            Log.Warning(ex, "依赖拷贝失败（非致命，但可能导致注入时依赖解析失败）");
+            Log.Warn("依赖拷贝失败（非致命，但可能导致注入时依赖解析失败）", ex);
         }
     }
 
@@ -226,7 +225,7 @@ internal static class Program
         Process? p = ProcessFinder.Find(name);
         if (p != null) return p;
 
-        Log.Information("等待进程 {Name} 启动（最多 {Timeout}s）...", name, timeoutSeconds);
+        Log.Info($"等待进程 {name} 启动（最多 {timeoutSeconds}s）...");
         var sw = Stopwatch.StartNew();
         while (sw.Elapsed.TotalSeconds < timeoutSeconds)
         {

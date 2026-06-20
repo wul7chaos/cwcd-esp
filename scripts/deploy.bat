@@ -1,60 +1,41 @@
 @echo off
-setlocal
 chcp 65001 >nul
-REM ===== Deploy: build library + injector, gather into deploy\ =====
-REM Usage: deploy.bat "[game Managed dir]"
-REM   不传参时使用 GamePaths.local.props 中的 GameManagedDir
+REM Deploy script - build + publish + copy to deploy/
 
-set "GAMEMANAGED=%~1"
-set "OUT=%~dp0..\deploy"
-set "LIBOUT=%~dp0..\CwcdEspLibrary\bin\Release"
-set "INJOUT=%~dp0..\CwcdEspInjector\bin\x64\Release"
+set "ROOT=%~dp0.."
+set "OUT=%ROOT%\deploy"
+set "LIB=%ROOT%\CwcdEspLibrary"
+set "INJ=%ROOT%\CwcdEspInjector"
 
-if exist "%OUT%" rmdir /s /q "%OUT%"
-mkdir "%OUT%" >nul 2>&1
-
-echo ===== 1/2 Build CwcdEspLibrary =====
-if "%GAMEMANAGED%"=="" (
-  call "%~dp0build_library.bat"
-) else (
-  call "%~dp0build_library.bat" "%GAMEMANAGED%"
-)
+echo ===== 1/2 Build CwcdEspLibrary (Release) =====
+dotnet build "%LIB%\CwcdEspLibrary.csproj" -c Release
 if errorlevel 1 (
   echo [!] Library build failed.
   exit /b 1
 )
 
-echo ===== 2/2 Build CwcdEspInjector =====
-call "%~dp0build_injector.bat"
+echo.
+echo ===== 2/2 Publish CwcdEspInjector (SingleFile, win-x64) =====
+dotnet publish "%INJ%\CwcdEspInjector.csproj" -c Release -r win-x64 --self-contained true -o "%OUT%"
 if errorlevel 1 (
-  echo [!] Injector build failed.
+  echo [!] Injector publish failed.
   exit /b 1
 )
 
-REM Copy library dll + Harmony dependency
-if exist "%LIBOUT%\CwcdEspLibrary.dll" (
-  copy /y "%LIBOUT%\CwcdEspLibrary.dll" "%OUT%\" >nul
-  echo [*] Copied CwcdEspLibrary.dll
-) else (
-  echo [!] CwcdEspLibrary.dll not found at: %LIBOUT%
-)
-if exist "%LIBOUT%\0Harmony.dll" (
-  copy /y "%LIBOUT%\0Harmony.dll" "%OUT%\" >nul
-  echo [*] Copied 0Harmony.dll
-) else (
-  echo [!] 0Harmony.dll not found — 运行时加载补丁库会失败！
-)
+echo.
+echo ===== Copy CwcdEspLibrary + 0Harmony to deploy\ =====
+if not exist "%OUT%" mkdir "%OUT%"
 
-REM Copy injector exe + its native deps
-if exist "%INJOUT%\CwcdEspInjector.exe" (
-  copy /y "%INJOUT%\CwcdEspInjector.exe" "%OUT%\" >nul
-  echo [*] Copied CwcdEspInjector.exe
-) else (
-  echo [!] CwcdEspInjector.exe not found at: %INJOUT%
-)
+copy /y "%LIB%\bin\Release\CwcdEspLibrary.dll" "%OUT%\" >nul
+echo [*] Copied CwcdEspLibrary.dll
+copy /y "%LIB%\bin\Release\0Harmony.dll" "%OUT%\" >nul
+echo [*] Copied 0Harmony.dll
+
+REM 移除 pdb（可选）
+del /q "%OUT%\*.pdb" 2>nul
 
 echo.
 echo [OK] Deploy complete: %OUT%
+echo     CwcdEspInjector.exe - single file, no .NET 10 required
 echo     Run as admin: %OUT%\CwcdEspInjector.exe
-echo     Default target process: NoSuchPlace
 exit /b 0

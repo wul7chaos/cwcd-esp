@@ -14,7 +14,10 @@
     <DisableImplicitNamespaceImports>true</DisableImplicitNamespaceImports>
     <!-- 必须为 AnyCPU：Unity Mono 只能加载 AnyCPU 托管程序集，x64-only (PE32+) 会导致 mono_class_from_name 返回 NULL -->
     <Platforms>AnyCPU</Platforms>
+    <Platform>AnyCPU</Platform>
     <PlatformTarget>AnyCPU</PlatformTarget>
+    <!-- 不在输出路径中追加 Platform 子目录，避免 bin\x64\Release 与 bin\Release 共存 -->
+    <AppendPlatformToOutputPath>false</AppendPlatformToOutputPath>
     <!-- C# 9.0 是 Unity 6 Mono 运行时支持的最高版本，避免 C# 11+ 的 RefSafetyRulesAttribute 导致 Mono 无法解析 -->
     <LangVersion>9.0</LangVersion>
     <!-- 拷贝 Harmony 等 NuGet 依赖到输出目录，便于 deploy 汇总 -->

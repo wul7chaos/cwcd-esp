@@ -4,9 +4,8 @@ using UnityEngine;
 namespace CwcdEsp.Esp
 {
     /// <summary>
-    /// 统一渲染调度（方案 3.3 数据流向）。
+    /// 统一渲染调度（修复版：全部改用 GUI 绘制，不再使用 GL）。
     /// 由 Patch_OnGUI.Postfix 在 EventType.Repaint 时调用。
-    /// GL 趟（方框/血条）与 Label 趟（文字）分离，避免矩阵混用。
     /// 状态面板始终绘制，让用户知道 ESP 已加载。
     /// </summary>
     public static class EspRenderer
@@ -24,21 +23,20 @@ namespace CwcdEsp.Esp
             if (!boxOn && !lootOn) return;
             if (cam == null) return;
 
-            // ===== GL 趟：方框 + 血条 =====
+            // ===== 方框 + 血条（GUI 坐标系）=====
             if (boxOn)
             {
-                GlDrawHelper.BeginGlContext();
-                try { BoxESP.DrawGl(); }
-                catch (System.Exception e) { FileLogger.Error("BoxESP.DrawGl 异常: " + e.Message); }
-                GlDrawHelper.EndGlContext();
+                try { BoxESP.DrawBoxes(); }
+                catch (System.Exception e) { FileLogger.Error("BoxESP.DrawBoxes 异常: " + e.Message); }
             }
 
-            // ===== Label 趟：文字（GUI 矩阵独立）=====
-            if (boxOn)
-            {
-                try { BoxESP.DrawLabels(); }
-                catch (System.Exception e) { FileLogger.Error("BoxESP.DrawLabels 异常: " + e.Message); }
-            }
+            // ===== 文字标签 =====
+            // 敌人文本已注释，只保留方框
+            // if (boxOn)
+            // {
+            //     try { BoxESP.DrawLabels(); }
+            //     catch (System.Exception e) { FileLogger.Error("BoxESP.DrawLabels 异常: " + e.Message); }
+            // }
             if (lootOn)
             {
                 try { LootESP.DrawLabels(); }

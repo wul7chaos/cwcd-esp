@@ -23,14 +23,14 @@ namespace CwcdEsp
 
         // ===== 可调参数（方案 9.2）=====
         public static int BoxThickness = 2;            // 1~4 px
-        public static float TrackingAngle = 15f;       // 0~45°，准星吸附范围
-        public static float TrackingDistance = 64f;    // 0~100m，最大追踪距离
+        public static float TrackingAngle = 25f;       // 0~45°，准星吸附范围（俯视角需要更大角度）
+        public static float TrackingDistance = 100f;   // 0~200m，最大追踪距离（xz平面距离）
         public static int MinRarity = 0;               // 0~4，物资过滤
         public static float SightCheckInterval = 0.2f; // 0.1~1s，视线物理检测降频
 
         // ===== 渲染距离 =====
-        public static float EnemyMaxDistance = 80f;    // 方框透视最大距离
-        public static float LootMaxDistance = 64f;     // 物资透视最大距离
+        public static float EnemyMaxDistance = 100f;   // 方框透视最大距离
+        public static float LootMaxDistance = 80f;     // 物资透视最大距离（xz平面距离）
         public static float DefaultHalfWidth = 0.5f;   // 方框半宽（米）
 
         // ===== 阵营颜色（方案 4.4）=====

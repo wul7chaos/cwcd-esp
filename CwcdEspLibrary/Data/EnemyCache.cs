@@ -21,9 +21,7 @@ namespace CwcdEsp.Data
 
         private const int EnemyMask = 2 | 4;
 
-        // 日志限频
-        private static float _lastLogTime = 0f;
-        private static int _logCount = 0;
+        private int _lastCount = -1;
 
         public void Init()
         {
@@ -113,13 +111,15 @@ namespace CwcdEsp.Data
                 write.Add(e);
             }
 
-            // 限频日志（前3次 + 每10秒一次）
-            if ((_logCount < 3 || Time.time - _lastLogTime > 10f) && write.Count > 0)
+            // 仅在敌人数量变化时记录
+            if (write.Count != _lastCount)
             {
-                _lastLogTime = Time.time;
-                _logCount++;
-                var first = write[0];
-                FileLogger.Info($"[EnemyCache] 缓存 {write.Count} 敌人。首个: pos={first.Position} boundsCenter={first.BoundsCenter} radius={first.Radius} height={first.Height}");
+                _lastCount = write.Count;
+                if (write.Count > 0)
+                {
+                    var first = write[0];
+                    FileLogger.Info($"[EnemyCache] 缓存 {write.Count} 敌人");
+                }
             }
         }
 

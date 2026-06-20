@@ -5,16 +5,16 @@ using UnityEngine;
 namespace CwcdEsp.Esp
 {
     /// <summary>
-    /// 方框透视（修复版：使用 Collider.bounds 的 8 角点投影到屏幕画 2D 包围框）。
+    /// 方框透视（修复版：改用 GUI.DrawTexture 替代 GL 绘制）。
     ///
-    /// 之前的方案用脚底+固定高度投影，在俯视角下方框偏移。
-    /// 现在用 Collider.bounds 的 8 个角点投影到屏幕，取 min/max 画 2D 包围框，
-    /// 确保方框精确框住角色的渲染碰撞体。
+    /// 之前用 GL.LoadPixelMatrix 绘制方框，与 OnGUI 的 GUI 坐标系不匹配导致偏移。
+    /// 现在全部用 GUI.DrawTexture，与 GUI.Label 使用相同的坐标系（原点左上，y 向下）。
+    /// 用 Collider.bounds 的 8 角点投影到屏幕取 min/max 画 2D 包围框。
     /// </summary>
     public static class BoxESP
     {
-        /// <summary>GL 趟：绘制所有敌人的方框与血条。</summary>
-        public static void DrawGl()
+        /// <summary>绘制所有敌人的方框与血条（GUI 坐标系）。</summary>
+        public static void DrawBoxes()
         {
             var enemies = EnemyCache.Instance.GetReadBuffer();
             if (enemies == null || enemies.Count == 0) return;
@@ -23,17 +23,16 @@ namespace CwcdEsp.Esp
 
             for (int i = 0; i < enemies.Count; i++)
             {
-                DrawEnemyBoxGl(cam, enemies[i]);
+                DrawEnemyBox(cam, enemies[i]);
             }
         }
 
-        private static void DrawEnemyBoxGl(Camera cam, EnemyData e)
+        private static void DrawEnemyBox(Camera cam, EnemyData e)
         {
-            // 用 bounds 中心 + size 构建 8 角点
             Vector3 center = e.BoundsCenter;
             Vector3 size = e.BoundsSize;
 
-            // 如果 bounds 无效（size≈0），回退到 position + height + radius
+            // 如果 bounds 无效，回退到 position + height + radius
             if (size.sqrMagnitude < 0.01f)
             {
                 center = e.Position + Vector3.up * (e.Height * 0.5f);
@@ -41,7 +40,6 @@ namespace CwcdEsp.Esp
             }
 
             Vector3 ext = size * 0.5f;
-            // 8 个角点
             Vector3[] corners = new Vector3[8];
             corners[0] = center + new Vector3(-ext.x, -ext.y, -ext.z);
             corners[1] = center + new Vector3( ext.x, -ext.y, -ext.z);
@@ -52,14 +50,14 @@ namespace CwcdEsp.Esp
             corners[6] = center + new Vector3(-ext.x,  ext.y,  ext.z);
             corners[7] = center + new Vector3( ext.x,  ext.y,  ext.z);
 
-            // 全部投影到屏幕，取 min/max 画 2D 包围框
+            // 全部投影到 GUI 坐标（原点左上，y 向下），取 min/max
             float minX = float.MaxValue, maxX = float.MinValue;
             float minY = float.MaxValue, maxY = float.MinValue;
             bool anyVisible = false;
 
             for (int i = 0; i < 8; i++)
             {
-                Vector3 sp = cam.WorldToScreenPoint(corners[i]);
+                Vector3 sp = GuiDrawHelper.WorldToGuiPoint(cam, corners[i]);
                 if (sp.z < 0) continue; // 在相机后方
                 anyVisible = true;
                 if (sp.x < minX) minX = sp.x;
@@ -72,13 +70,14 @@ namespace CwcdEsp.Esp
 
             Color c = EspConfig.ColorForFraction(e.FractionValue);
 
-            // 方框（GL 像素坐标：原点左下，y 向上）
-            GlDrawHelper.DrawBox(minX, maxY, maxX, minY, c);
+            // 方框（GUI 坐标：左上原点，y 向下）
+            float thickness = EspConfig.BoxThickness;
+            GuiDrawHelper.DrawBox(minX, minY, maxX, maxY, c, thickness);
 
             // 血条（方框上方）
             if (e.HasHp)
             {
-                DrawHealthBar(minX, maxX, maxY, e.HpRatio);
+                DrawHealthBar(minX, maxX, minY, e.HpRatio);
             }
         }
 
@@ -86,14 +85,14 @@ namespace CwcdEsp.Esp
         {
             float barH = 3f;
             float gap = 2f;
-            float barTop = boxTop + gap;
+            float barTop = boxTop - gap - barH;
             float barBottom = barTop + barH;
-            GlDrawHelper.DrawRect(left, barBottom, right, barTop, new Color(0.15f, 0.15f, 0.15f, 0.85f));
+            GuiDrawHelper.DrawRect(left, barTop, right, barBottom, new Color(0.15f, 0.15f, 0.15f, 0.85f));
             float fillRight = left + (right - left) * Mathf.Clamp01(ratio);
-            GlDrawHelper.DrawRect(left, barBottom, fillRight, barTop, Colors.HpColor(ratio));
+            GuiDrawHelper.DrawRect(left, barTop, fillRight, barBottom, Colors.HpColor(ratio));
         }
 
-        /// <summary>Label 趟：绘制所有敌人的名字/血量文本。</summary>
+        /// <summary>绘制所有敌人的名字/血量文本。</summary>
         public static void DrawLabels()
         {
             var enemies = EnemyCache.Instance.GetReadBuffer();
@@ -114,12 +113,11 @@ namespace CwcdEsp.Esp
             if (e.BoundsSize.sqrMagnitude < 0.01f)
                 topPos = e.Position + Vector3.up * e.Height;
 
-            Vector3 sp = cam.WorldToScreenPoint(topPos);
+            Vector3 sp = GuiDrawHelper.WorldToGuiPoint(cam, topPos);
             if (sp.z < 0) return;
 
-            float topGlY = sp.y + 8f;
-            float guiY = ScreenTools.GlYToGuiY(topGlY);
             float centerX = sp.x;
+            float guiY = sp.y + 2f; // 略微下移
 
             Color c = EspConfig.ColorForFraction(e.FractionValue);
             string text = e.HasHp ? $"{e.Name}  {e.Hp:0}/{e.MaxHp:0}" : e.Name;
