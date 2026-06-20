@@ -23,6 +23,10 @@ namespace CwcdEsp.Utils
                     fontStyle = FontStyle.Bold,
                     alignment = TextAnchor.MiddleCenter,
                 };
+                // 清除 padding，让 CalcSize 返回的尺寸更接近实际渲染高度，
+                // 避免行高不足导致底部被裁剪（中文字体行高 > fontSize）
+                style.padding = new RectOffset(0, 0, 0, 0);
+                style.margin = new RectOffset(0, 0, 0, 0);
                 style.normal.textColor = color;
                 _styleCache[color] = style;
             }

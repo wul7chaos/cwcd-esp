@@ -22,8 +22,8 @@ namespace CwcdEsp.Esp
             if (!EspConfig.OverlayVisible) return;
 
             float x = 10f;
-            float lineH = 18f;
-            float w = 170f;
+            float lineH = 22f;  // 中文字体 fontSize=12 实际渲染约 20px，行高 22 避免底部裁剪
+            float w = 180f;
 
             int enemyCount = 0;
             int lootCount = 0;
@@ -32,7 +32,7 @@ namespace CwcdEsp.Esp
 
             // 标题(1) + 3个功能开关 + 敌人物资(1) + 热键提示(1) = 6 行
             int lines = 6;
-            float h = lines * lineH + 12f;
+            float h = lines * lineH + 10f;
 
             // 左侧垂直居中
             float y = (Screen.height - h) * 0.5f;
@@ -41,7 +41,7 @@ namespace CwcdEsp.Esp
             // 半透明背景
             DrawBgRect(x, y, w, h);
 
-            float cy = y + 6f;
+            float cy = y + 5f;
             DrawText(x + 8, cy, "CWCD-ESP v4", TitleColor, true); cy += lineH;
             DrawToggleLine(x + 8, cy, "方框透视", EspConfig.BoxEspEnabled); cy += lineH;
             DrawToggleLine(x + 8, cy, "物资透视", EspConfig.LootEspEnabled); cy += lineH;
@@ -73,12 +73,14 @@ namespace CwcdEsp.Esp
             style.fontSize = 12;
             style.fontStyle = bold ? FontStyle.Bold : FontStyle.Normal;
             style.normal.textColor = color;
+            style.padding = new RectOffset(0, 0, 0, 0);
+            style.margin = new RectOffset(0, 0, 0, 0);
 
             // 阴影
             GUIStyle shadowStyle = new GUIStyle(style);
             shadowStyle.normal.textColor = new Color(0, 0, 0, 0.8f);
-            GUI.Label(new Rect(x + 1, y + 1, 300, 18), text, shadowStyle);
-            GUI.Label(new Rect(x, y, 300, 18), text, style);
+            GUI.Label(new Rect(x + 1, y + 1, 300, 22), text, shadowStyle);
+            GUI.Label(new Rect(x, y, 300, 22), text, style);
         }
 
         private static Texture2D _whiteTex;

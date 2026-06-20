@@ -41,9 +41,10 @@ namespace CwcdEsp.Esp
             {
                 GUIStyle nameStyle = Colors.GetStyle(new Color(1f, 1f, 1f, 0.9f));
                 Vector2 size = nameStyle.CalcSize(new GUIContent(entry.ContainerName));
-                Rect rect = new Rect(centerX - size.x * 0.5f, guiY, size.x, size.y);
+                // Rect 高度多给 2px 余量，避免中文字体底部裁剪
+                Rect rect = new Rect(centerX - size.x * 0.5f, guiY, size.x, size.y + 2f);
                 Colors.LabelWithShadow(rect, entry.ContainerName, new Color(1f, 1f, 1f, 0.9f));
-                guiY -= size.y + 1f; // 向上排列（y 减小）
+                guiY -= size.y + 4f; // 行间距 4px，避免相邻行重叠
             }
 
             // 逐物品行（稀有度着色），从下往上排列 —— 使用过滤后的物品列表
@@ -68,9 +69,10 @@ namespace CwcdEsp.Esp
                 string text = _sb.ToString();
                 GUIStyle style = Colors.GetStyle(c);
                 Vector2 size = style.CalcSize(new GUIContent(text));
-                Rect rect = new Rect(centerX - size.x * 0.5f, guiY, size.x, size.y);
+                // Rect 高度多给 2px 余量，避免中文字体底部裁剪
+                Rect rect = new Rect(centerX - size.x * 0.5f, guiY, size.x, size.y + 2f);
                 Colors.LabelWithShadow(rect, text, c);
-                guiY -= size.y + 1f;
+                guiY -= size.y + 4f; // 行间距 4px，避免相邻行重叠
             }
         }
     }
