@@ -82,7 +82,8 @@ namespace CwcdEsp.Esp
 
             GUILayout.EndVertical();
 
-            GUI.DragWindow();
+            // 仅标题栏可拖拽（避免与控件点击/滑动冲突）
+            GUI.DragWindow(new Rect(0, 0, _windowRect.width, 20));
         }
 
         private static void SectionLabel(string title)

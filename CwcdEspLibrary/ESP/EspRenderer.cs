@@ -16,9 +16,7 @@ namespace CwcdEsp.Esp
             try { StatusOverlay.Draw(); }
             catch (System.Exception e) { FileLogger.Error("StatusOverlay 异常: " + e.Message); }
 
-            // 配置菜单（Insert 切换）
-            try { ConfigMenu.Draw(); }
-            catch (System.Exception e) { FileLogger.Error("ConfigMenu 异常: " + e.Message); }
+            // ConfigMenu 已移至 Patch_OnGUI（GUILayout 需 Layout+Repaint 双阶段，不能只在 Repaint）
 
             Camera cam = ScreenTools.Cam;
 

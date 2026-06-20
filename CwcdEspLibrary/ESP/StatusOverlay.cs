@@ -37,16 +37,14 @@ namespace CwcdEsp.Esp
             try { lootCount = LootCache.Instance.GetSnapshot()?.Count ?? 0; } catch { }
 
             // 计算面板高度
-            int lines = 5;
+            int lines = 4;
             float h = lines * lineH + 12f;
 
             // 半透明背景
             DrawBgRect(x, y, w, h);
 
             float cy = y + 6f;
-            DrawText(x + 8, cy, "CWCD-ESP v3  [已加载]", TitleColor, true); cy += lineH;
-            DrawText(x + 8, cy, $"Patch: {PatchSuccess} OK / {PatchFail} FAIL",
-                     PatchFail > 0 ? FailColor : OkColor, false); cy += lineH;
+            DrawText(x + 8, cy, "CWCD-ESP v4  [已加载]", TitleColor, true); cy += lineH;
 
             // 功能开关状态（紧凑单行）
             string status = $"{(EspConfig.BoxEspEnabled ? "[ESP]" : " esp ")} " +
