@@ -8,10 +8,16 @@ namespace CwcdEsp.Esp
     /// <summary>
     /// 物资透视（修复版：使用 GUI 坐标系）。
     /// 在容器/掉落物上方列出物品名称与稀有度，逐行排列、稀有度着色。
+    /// 物品已按价值降序排序，可通过 MaxLootItemsPerContainer 限制显示数量。
     /// </summary>
     public static class LootESP
     {
         private static readonly StringBuilder _sb = new StringBuilder(256);
+
+        // 固定行高：fontSize=12 粗体中文实际渲染约 20px，用 22px 行高确保不重叠不裁剪
+        private const float LineHeight = 22f;
+        private const float LineGap = 2f;
+        private const float RectHeight = 20f; // Rect 高度（略小于行高，给行间距留空间）
 
         /// <summary>绘制所有物资容器的物品列表。</summary>
         public static void DrawLabels()
@@ -41,13 +47,12 @@ namespace CwcdEsp.Esp
             {
                 GUIStyle nameStyle = Colors.GetStyle(new Color(1f, 1f, 1f, 0.9f));
                 Vector2 size = nameStyle.CalcSize(new GUIContent(entry.ContainerName));
-                // Rect 高度多给 2px 余量，避免中文字体底部裁剪
-                Rect rect = new Rect(centerX - size.x * 0.5f, guiY, size.x, size.y + 2f);
+                Rect rect = new Rect(centerX - size.x * 0.5f, guiY, size.x, RectHeight);
                 Colors.LabelWithShadow(rect, entry.ContainerName, new Color(1f, 1f, 1f, 0.9f));
-                guiY -= size.y + 4f; // 行间距 4px，避免相邻行重叠
+                guiY -= LineHeight + LineGap;
             }
 
-            // 逐物品行（稀有度着色），从下往上排列 —— 使用过滤后的物品列表
+            // 逐物品行（稀有度着色），从下往上排列 —— 使用过滤+排序+限量后的物品列表
             var items = entry.FilteredItems;
             for (int i = 0; i < items.Count; i++)
             {
@@ -69,10 +74,10 @@ namespace CwcdEsp.Esp
                 string text = _sb.ToString();
                 GUIStyle style = Colors.GetStyle(c);
                 Vector2 size = style.CalcSize(new GUIContent(text));
-                // Rect 高度多给 2px 余量，避免中文字体底部裁剪
-                Rect rect = new Rect(centerX - size.x * 0.5f, guiY, size.x, size.y + 2f);
+                // 用固定 Rect 高度，避免 CalcSize.y 偏小导致行间重叠
+                Rect rect = new Rect(centerX - size.x * 0.5f, guiY, size.x, RectHeight);
                 Colors.LabelWithShadow(rect, text, c);
-                guiY -= size.y + 4f; // 行间距 4px，避免相邻行重叠
+                guiY -= LineHeight + LineGap;
             }
         }
     }

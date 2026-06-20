@@ -34,6 +34,7 @@ namespace CwcdEsp
         public static int MinItemValue = 0;            // 物品最低价值（购买价），低于此值不显示
         public static bool ShowItemValue = true;       // 是否在物资标签中显示价值
         public static bool EnableLootFilter = false;   // 是否启用价值过滤
+        public static int MaxLootItemsPerContainer = 0;// 每个容器最多显示物品数（0=不限制），按价值降序取前N个
 
         // ===== 渲染距离 =====
         public static float EnemyMaxDistance = 100f;   // 方框透视最大距离

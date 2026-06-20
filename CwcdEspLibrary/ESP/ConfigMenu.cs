@@ -1,4 +1,5 @@
 using CwcdEsp.Data;
+using CwcdEsp.Utils;
 using UnityEngine;
 
 namespace CwcdEsp.Esp
@@ -6,12 +7,15 @@ namespace CwcdEsp.Esp
     /// <summary>
     /// 配置菜单（IMGUI 可拖动窗口）。
     /// 按 Insert 键切换显示。提供物资价值过滤、稀有度、方框厚度、连线等参数的实时调整。
-    /// 由 EspRenderer.DrawAll 在 OnGUI Repaint 时调用。
+    /// 由 Patch_OnGUI 在所有 OnGUI 事件中调用（GUILayout 需 Layout+Repaint 双阶段）。
+    /// 配置修改后点击"保存配置"按钮持久化到 cwcd-esp-config.txt。
     /// </summary>
     public static class ConfigMenu
     {
-        private static Rect _windowRect = new Rect(260f, 40f, 300f, 360f);
+        private static Rect _windowRect = new Rect(260f, 40f, 320f, 420f);
         private static bool _inited;
+        private static string _saveMsg = "";
+        private static float _saveMsgTime;
 
         public static void Draw()
         {
@@ -50,6 +54,12 @@ namespace CwcdEsp.Esp
             GUILayout.Label(EspConfig.MinRarity.ToString(), GUILayout.Width(20));
             GUILayout.EndHorizontal();
 
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("最多显示:", GUILayout.Width(70));
+            EspConfig.MaxLootItemsPerContainer = Mathf.RoundToInt(GUILayout.HorizontalSlider(EspConfig.MaxLootItemsPerContainer, 0, 20));
+            GUILayout.Label(EspConfig.MaxLootItemsPerContainer == 0 ? "不限" : EspConfig.MaxLootItemsPerContainer.ToString(), GUILayout.Width(30));
+            GUILayout.EndHorizontal();
+
             GUILayout.Space(6);
 
             // ===== 方框透视 =====
@@ -80,6 +90,24 @@ namespace CwcdEsp.Esp
             try { aiCount = AiStateCache.Count; } catch { }
             GUILayout.Label($"敌人: {enemyCount}  物资: {lootCount}  AI: {aiCount}");
 
+            GUILayout.Space(8);
+
+            // ===== 保存配置 =====
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("保存配置", GUILayout.Height(24)))
+            {
+                ConfigFile.Save();
+                _saveMsg = "✓ 配置已保存";
+                _saveMsgTime = Time.realtimeSinceStartup;
+            }
+            GUILayout.EndHorizontal();
+
+            // 保存提示（3秒后消失）
+            if (!string.IsNullOrEmpty(_saveMsg) && Time.realtimeSinceStartup - _saveMsgTime < 3f)
+            {
+                GUILayout.Label(_saveMsg, Colors.GetStyle(new Color(0.3f, 1f, 0.5f, 1f)));
+            }
+
             GUILayout.EndVertical();
 
             // 仅标题栏可拖拽（避免与控件点击/滑动冲突）
@@ -92,3 +120,4 @@ namespace CwcdEsp.Esp
         }
     }
 }
+

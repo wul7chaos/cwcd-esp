@@ -37,11 +37,21 @@ namespace CwcdEsp
                 try { UnityEngine.Debug.Log("[CWCD-ESP] FileLogger.Init 失败: " + ex); } catch { }
             }
 
-            FileLogger.Info("========== CWCD-ESP v3 启动 ==========");
+            FileLogger.Info("========== CWCD-ESP v4 启动 ==========");
 
             try
             {
                 _loaded = true;
+
+                // 0. 加载配置文件（在所有功能初始化前，让用户配置生效）
+                try
+                {
+                    ConfigFile.Load();
+                }
+                catch (Exception ex)
+                {
+                    FileLogger.Warn("配置文件加载失败（使用默认值）: " + ex.Message);
+                }
 
                 // 1. 初始化缓存
                 FileLogger.Info("初始化 EnemyCache / LootCache...");

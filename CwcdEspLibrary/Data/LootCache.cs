@@ -198,11 +198,11 @@ namespace CwcdEsp.Data
             }
         }
 
-        /// <summary>主线程 Update 末尾：重建绘制快照（含距离/稀有度/价值剔除）。</summary>
+        /// <summary>主线程 Update 末尾：重建绘制快照（含距离/稀有度/价值剔除 + 价值排序 + 数量限制）。</summary>
         /// <remarks>
         /// 过滤粒度=物品级：每个物品独立按稀有度+价值过滤，只把通过过滤的物品放入 FilteredItems。
+        /// 然后按 BuyPrice 降序排序，若 MaxLootItemsPerContainer > 0 则截取前N个。
         /// 容器内全部物品都不通过 → 该容器不加入 snapshot。
-        /// 这样阈值变化时能看到物品逐个消失/出现，而不是容器整体跳变。
         /// </remarks>
         public void RebuildSnapshot()
         {
@@ -214,6 +214,7 @@ namespace CwcdEsp.Data
             bool valueFilterOn = EspConfig.EnableLootFilter;
             int minValue = EspConfig.MinItemValue;
             int minRarity = EspConfig.MinRarity;
+            int maxItems = EspConfig.MaxLootItemsPerContainer;
 
             foreach (var kv in _loot)
             {
@@ -239,6 +240,15 @@ namespace CwcdEsp.Data
 
                 // 容器内至少有一件物品通过过滤才显示
                 if (entry.FilteredItems.Count == 0) continue;
+
+                // 按价值降序排序（价值高的排前面）
+                entry.FilteredItems.Sort((a, b) => b.BuyPrice.CompareTo(a.BuyPrice));
+
+                // 数量限制：只保留前 maxItems 个（已按价值降序）
+                if (maxItems > 0 && entry.FilteredItems.Count > maxItems)
+                {
+                    entry.FilteredItems.RemoveRange(maxItems, entry.FilteredItems.Count - maxItems);
+                }
 
                 _snapshot.Add(entry);
             }
