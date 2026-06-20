@@ -13,13 +13,14 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <!-- SingleFile 自包含：输出单个 exe，无需安装 .NET 10 -->
-    <PublishSingleFile>true</PublishSingleFile>
-    <SelfContained>true</SelfContained>
+    <!-- Native AOT：编译为原生机器码，无需 .NET 运行时，体积约 3-8MB -->
+    <PublishAot>true</PublishAot>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <!-- build 输出路径不含框架/RID 后缀（兼容 deploy 脚本） -->
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+    <!-- AOT 裁剪：移除未使用的 BCL 代码 -->
+    <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
 
   <!-- 无 NuGet 依赖（Log 类自实现，零依赖） -->
